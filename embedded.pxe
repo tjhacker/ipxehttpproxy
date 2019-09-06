@@ -1,0 +1,9 @@
+#!ipxe
+
+
+dhcp
+#set http-proxy http://192.168.33.10:3128
+
+prompt --key 0x02 --timeout 2000 Press Ctrl-B for the iPXE command line... && shell ||
+
+chain --autofree http://boot.netboot.xyz
