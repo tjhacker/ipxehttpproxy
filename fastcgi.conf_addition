@@ -1,0 +1,14 @@
+fastcgi.server = ( ".php" => ((
+                "bin-path" => "/usr/bin/php-cgi",
+                "socket" => "/tmp/php.socket",
+                "bin-environment" => (
+                        "PHP_FGCI_CHILDREN" => "3",
+                        "PHP_FGCI_MAX_REQUESTS" => "1000",
+                        "PHPRC" => "/var/www/localhost/php.ini"
+                ),
+                "bin-copy-environment" => (
+                        "PATH", "SHELL", "USER"
+                ),
+                "broken-scriptfilename" => "enable"
+
+                )))
