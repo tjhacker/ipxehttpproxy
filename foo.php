@@ -9,4 +9,4 @@
         ecoh "initrd http://ftp.ussg.iu.edu/linux/centos/7/os/x86_64/images/pxeboot/initrd.img\n";
         echo "boot\n";
         ?>
-        EOF
+       
