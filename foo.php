@@ -1,5 +1,5 @@
      <$?php
-        header ("Content-type: text/plan");
+        header ("Content-type: text/plain");
         echo "#!ipxe\n";
         $proxy = "http://juno.load:3128";
         echo "set http-proxy " . $proxy . "\n";
