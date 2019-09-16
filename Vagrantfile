@@ -109,7 +109,7 @@ Vagrant.configure("2") do |config|
 	
 
 
-	dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=eth1 --dhcp-range=192.168.33.20,192.168.33.25,255.255.255.0 --dhcp-match=set:gpxe,175 --dhcp-boot=tag:\!gpxe,undionly.kpxe --dhcp-boot=pxelinux.cfg/default --address=/juno.load/$LOCALIP --server=8.8.4.4
+	dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=eth1 --dhcp-range=192.168.33.20,192.168.33.25,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/juno.load/$LOCALIP --server=8.8.4.4
 
 
 		
