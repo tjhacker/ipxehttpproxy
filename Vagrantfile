@@ -137,6 +137,27 @@ Vagrant.configure("2") do |config|
 
 	cp /usr/local/src/ipxe/ipxehttpproxy/ks.cfg /var/www/lighttpd/ks.cfg
 
+     # openvswitch (IRIS)
+
+         cd /usr/local/src
+        wget https://rdoproject.org/repos/rdo-release.rpm
+        rpm -i rdo-release.rpm
+        yum -y install openvswitch libibverbs
+        systemctl enable openvswitch; systemctl start openvswitch
+
+        echo "export PATH=/usr/local/bin:/usr/share/openvswitch/scripts/:$PATH" >> /etc/bashrc
+        export PATH=/usr/local/bin:/usr/share/openvswitch/scripts/:$PATH
+        hash
+        ovs-ctl start
+
+
+         systemctl enable openvswitch; systemctl start openvswitch
+
+         ovs-vsctl add-br ovs-br1
+         ovs-vsctl add-port ovs-br1 eth2
+         ifconfig ovs-br1 192.100.42.5/24
+
+
 
 
   #   apt-get update
