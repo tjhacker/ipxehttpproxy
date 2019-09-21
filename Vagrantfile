@@ -2,6 +2,7 @@
 # vi: set ft=ruby :
 
 LOCALIP = "192.168.33.10"
+IRISIP = "192.100.42.20"
 
 
 # All Vagrant configuration is done below. The "2" in Vagrant.configure
@@ -37,6 +38,7 @@ Vagrant.configure("2") do |config|
   # using a specific IP.
 #   config.vm.network "private_network", ip: "192.168.33.10", virtualbox__intnet: "pxe test"
    config.vm.network "private_network", ip: LOCALIP, virtualbox__intnet: "pxe test"
+config.vm.network "private_network", ip: IRISIP, virtualbox__intnet: "irisnet"
 
   # Create a public network, which generally matched to bridged network.
   # Bridged networks make the machine appear as another physical device on
