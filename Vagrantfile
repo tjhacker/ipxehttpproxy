@@ -81,7 +81,7 @@ config.vm.network "private_network", ip: IRISIP, virtualbox__intnet: "irisnet"
 	yum -y install dnsmasq dnsmasq-utils tftp-server tftp openvswitch openvswitch-contoller syslinux-tftpboot ipxe-bootimgs git
 	
 	# create patched ipxe with HTTP proxy support
-	cd /usr/local/src; git clone git://git.ipxe.org/ipxe.git; cd ipxe; git clone https://github.com/tjhacker/ipxehttpproxy.git
+	cd /usr/local/src; git clone git://github.com/ipxe/ipxe.git; cd ipxe; git clone https://github.com/tjhacker/ipxehttpproxy.git
 	cd /usr/local/src/ipxe
 	patch -p1 < ipxehttpproxy/proxypatch.p
 	cp ipxehttpproxy/embedded.pxe src/embedded.pxe
