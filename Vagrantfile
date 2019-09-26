@@ -106,9 +106,11 @@ config.vm.network "private_network", ip: IRISIP, virtualbox__intnet: "irisnet"
 	firewall-cmd --reload
 	systemctl start NetworkManager
 
-	DNS=`fgrep -m 1 nameserver /etc/resolv.conf | sed 's/nameserver //'`
-	sed -i "s/$DNS/$LOCALIP/" /etc/resolv.conf
-	
+#	DNS=`fgrep -m 1 nameserver /etc/resolv.conf | sed 's/nameserver //'`
+#	sed -i "s/$DNS/$LOCALIP/" /etc/resolv.conf
+	nmcli con mod "System eth0" +ipv4.dns $LOCALIP
+	nmcli con mod "System eth0" ipv4.ignore-auto-dns yes
+	 nmcli con up "System eth0"
 
 
 	dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=eth1 --dhcp-range=192.168.33.20,192.168.33.25,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/juno.load/$LOCALIP --server=8.8.4.4
@@ -134,7 +136,8 @@ config.vm.network "private_network", ip: IRISIP, virtualbox__intnet: "irisnet"
 	sed -i "s:\#cache_dir ufs /var/spool/squid 100 16 256:cache_dir ufs /var/spool/squid 100000 16 256:" /etc/squid/squid.conf	 
 	echo "maximum_object_size 40 GB" >> /etc/squid/squid.conf
 
-	squid -z; systemctl enable squid; systemctl start squid
+	squid -z
+	sleep 5; systemctl enable squid; systemctl start squid
 
 
 	cp /usr/local/src/ipxe/ipxehttpproxy/ks.cfg /var/www/lighttpd/ks.cfg
