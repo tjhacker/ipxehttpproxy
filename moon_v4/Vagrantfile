@@ -237,6 +237,25 @@ firewall-cmd --add-source=192.168.20.0/24 --permanent  --zone=juno
 
      firewall-cmd --reload
 
+# For physical hardware to prepare to run vagrant
+#  cd /usr/local/src
+#    yum -y install qt SDL qt-devel libXmu opus-devel libvpx-devel
+#    yum -y install virt-manager libvirt-client fail2ban
+#    cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+#    systemctl enable fail2ban
+@    systemctl start fail2ban
+#   yum -y groupinstall "Virtualization Host"
+#   wget  https://download.virtualbox.org/virtualbox/6.0.14/VirtualBox-6.0-6.0.14_133895_el7-1.x86_64.rpm
+
+#   rpm -i VirtualBox-6.0-6.0.14_133895_el7-1.x86_64.rpm
+
+#   wget https://releases.hashicorp.com/vagrant/2.2.6/vagrant_2.2.6_x86_64.rpm
+
+#   rpm -i vagrant_2.2.6_x86_64.rpm
+
+#   mkdir moon; cd moon
+
+
 
 
 
