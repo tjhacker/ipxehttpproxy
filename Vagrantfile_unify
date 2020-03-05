@@ -33,6 +33,8 @@ LOCAL_CIDR = "192.7.7.0/24"
 LOCALIP = "192.7.7.10"
 
 
+  
+ 
 
 # All Vagrant configuration is done below. The "2" in Vagrant.configure
 # configures the configuration version (we support older styles for
@@ -65,12 +67,21 @@ Vagrant.configure("2") do |config|
 
   # Create a private network, which allows host-only access to the machine
   # using a specific IP.
-#   config.vm.network "private_network", ip: "192.168.33.10", virtualbox__intnet: "pxe test"
 
+#   config.vm.network "private_network", ip: "192.7.7.100", virtualbox__intnet: "pxe test"
+config.vm.network "public_network", bridge: "Intel(R) Ethernet Connection (2) I219-LM"
 
 #   config.vm.network "private_network", ip: LOCALIP, virtualbox__intnet: "pxe test 2"
   config.vm.network "public_network", bridge: BRIDGE_INTERFACE
   config.vm.network "private_network", ip: LOCAL_IRISIP, virtualbox__intnet: "irisnet"
+
+ # This is for the jumphost
+  config.vm.provider "virtualbox" do |vb|
+        vb.customize ["modifyvm", :id, "--nicpromisc1", "allow-all"]
+        vb.customize ["modifyvm", :id, "--nicpromisc2", "allow-all"]
+        vb.customize ["modifyvm", :id, "--nicpromisc3", "allow-all"]
+   end
+
 
   # Create a public network, which generally matched to bridged network.
   # Bridged networks make the machine appear as another physical device on
@@ -217,23 +228,40 @@ export LOCAL_INTERFACE="eth0"
 
 #	DNS=`fgrep -m 1 nameserver /etc/resolv.conf | sed 's/nameserver //'`
 #	sed -i "s/$DNS/$LOCALIP/" /etc/resolv.conf
-	nmcli con mod "System eth0" +ipv4.dns 192.7.7.4
+#	nmcli con mod "System eth0" +ipv4.dns 192.7.7.4
+####	nmcli con mod "System eth0" ipv4.dns 192.7.7.4
+	nmcli con mod "System eth0" ipv4.dns 192.7.7.10
       nmcli con mod "System eth0" ipv4.ignore-auto-dns yes
 	 nmcli con up "System eth0"
+	nmcli general hostname apollo.load
  fi
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+        then # jumphost was masking DNS that refers requests to main server
+                dnsmasq --interface=ovs-br1 --address=/juno.load/192.7.7.10 --server=192.7.7.4 
+	
+        fi
 
 # % DNSMasq server
         if [ $VAGRANT_ROLE == "dnsmasq" ]
 	then
 
-		dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=ovs-br1 --dhcp-range=192.7.7.30,192.7.7.35,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/juno.load/192.7.7.4 --server=8.8.4.4
+#	nmcli general hostname moon.localhost
+
+	DNS=`fgrep -m 1 nameserver /etc/resolv.conf | sed 's/nameserver //'`
+	sed -i "s/$DNS/192.7.7.4/" /etc/resolv.conf
+	echo "nameserver 192.7.7.4" >> /etc/resolv.conf
+         chattr +i /etc/resolv.conf # Lock the file to prevent changes.
+
+		dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=ovs-br1 --dhcp-range=192.7.7.30,192.7.7.35,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/juno.load/192.7.7.4 --server=8.8.4.4 --dhcp-option=6,192.7.7.10
+####		dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=ovs-br1 --dhcp-range=192.7.7.30,192.7.7.35,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/zeus.load/192.7.7.4 --server=8.8.4.4 --dhcp-option=6,192.7.7.10
 
 		# Network routing rules and DNS
 	
 		ip addr add 10.210.210.41/24 dev eth1
 		ip route delete default
 		ip route add default via 10.210.210.1 dev eth1
-		echo "nameserver 8.8.4.4" >> /etc/resolv.conf	
+###		echo "nameserver 8.8.4.4" >> /etc/resolv.conf	
 	fi
 
 
@@ -256,8 +284,15 @@ export LOCAL_INTERFACE="eth0"
 	sed -i "s:\#cache_dir ufs /var/spool/squid 100 16 256:cache_dir ufs /var/spool/squid 100000 16 256:" /etc/squid/squid.conf	 
 	echo "maximum_object_size 40 GB" >> /etc/squid/squid.conf
 echo "acl localnet src 192.7.0.0/16   # RFC1918 possible internal network" >> /etc/squid/squid.conf
+
 	echo "icp_port 3130" >> /etc/squid/squid.conf
 	echo "icp_access allow localnet" >> /etc/squid/squid.conf 
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+	then
+		echo "cache_peer 192.7.7.4 parent 3128 3130 default" >> /etc/squid/squid.conf
+	fi
+
 
 	squid -z
 	sleep 5; systemctl enable squid; systemctl start squid
@@ -334,8 +369,19 @@ echo "acl localnet src 192.7.0.0/16   # RFC1918 possible internal network" >> /e
          systemctl enable openvswitch; systemctl start openvswitch
 
          ovs-vsctl add-br ovs-br1
-         ovs-vsctl add-port ovs-br1 eth2
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+	then
+         	ovs-vsctl add-port ovs-br1 eth1
+	fi
+
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+         	ovs-vsctl add-port ovs-br1 eth2
+	fi
+
          ovs-vsctl add-port ovs-br1 vxlan0
+
         if [ $VAGRANT_ROLE == "dnsmasq" ]
 	then
 	         ifconfig ovs-br1 192.7.7.4/24 ## debugging
