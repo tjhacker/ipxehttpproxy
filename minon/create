@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# Create minion port name PORT with VXlan ID N
+export MPORT=vxlan0
+export MPORT_ID=21
+export IPSEC_ADAPTER=eth2 
+export REMOTE_IPSEC_ADDR=192.100.88.10
+
+
+
+export MINION_STATUS=/var/minion/service
+
+#minon port X status in /var/minon/ports/X
+
+export PORT_STATUS=`dirname $MINION_STATUS`/ports/$MPORT
+mkdir -p `dirname $PORT_STATUS`
+
+echo "V-C VXLan Port Created" > $PORT_STATUS
+echo "V-C VXLan Port Created" > $MINION_STATUS
+
+# Recreate or Create VXlan adapter if it doesn't exist
+
+#ip link add **vxlan0** type vxlan id **21** dev **eth2** dstport 8472
+ip link delete $MPORT type vxlan id $MPORT_ID dev $IPSEC_ADAPTER
+ip link add $MPORT type vxlan id $MPORT_ID dev $IPSEC_ADAPTER dstport 8472
+
+echo "V-C VXlan adapter created" > $PORT_STATUS
+echo "V-C VXlan adapter created" > $MINION_STATUS
+
+# Add bridge forwarding to VXlan adapter to remote IPsec IP address
+#bridge fdb add 00:00:00:00:00:00 dst **$REMOTE_IRISIP** dev vxlan0
+bridge fdb add 00:00:00:00:00:00 dst $REMOTE_IPSEC_ADDR dev $MPORT
+
+# Turn on VXlan adapter link
+#ip link set up **vxlan0**
+ip link set up $MPORT
+# Add VXlan adapter to OpenVswitch bridge
+#ovs-vsctl add-port ovs-br1 **vxlan0**
+ovs-vsctl --if-exists del-port ovs-br1 $MPORT
+ovs-vsctl add-port ovs-br1 $MPORT
+
+# Test connection
+
+# If successful, state will be V-Up
+echo "V-Up VXlan adapter up" > $MINION_STATUS
+echo "V-Up VXlan adapter up" > $PORT_STATUS
