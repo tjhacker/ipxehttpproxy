@@ -1,0 +1,119 @@
+#!/bin/bash
+# Syntax: createa -m minion-port-name -i ipsec-adapter-name -a remote-ipsec-address -v VXLAN-id
+# Create minion port name PORT with VXlan ID N 
+# This has to be run on both the local and remote systems.
+
+OPTERR=1
+MPORT=""
+MPORT_ID=""
+IPSEC_ADAPTER=""
+REMOTE_IPSEC_ADDR=""
+while getopts m:i:a:v:h option
+do
+   case "${option}" 
+   in
+   m) MPORT=${OPTARG};;
+   i) IPSEC_ADAPTER=${OPTARG};;
+   a) REMOTE_IPSEC_ADDR=${OPTARG};;
+   v) MPORT_ID=${OPTARG};;
+   h) echo "Syntax: create -m minion-port-name -i ipsec-adapter-name -a remote-ipsec-address -v VXLAN-id"
+   esac
+done
+if [[ $MPORT == "" ]]; then
+  echo Minion port name missing.
+  exit 1
+fi
+
+if [[ $MPORT_ID == "" ]]; then
+  echo VXLAN id missing.
+  exit 1
+fi
+
+if [[ $IPSEC_ADAPTER == "" ]]; then
+  echo IPsec adapter name missing.
+  exit 1
+fi
+
+if [[ $REMOTE_IPSEC_ADDR == "" ]]; then
+  echo Remote IP address of IPsec tunnel missing.
+  exit 1
+fi
+   
+#export MPORT=vxlan0
+#export MPORT_ID=21
+#export IPSEC_ADAPTER=eth2 
+#export REMOTE_IPSEC_ADDR=192.100.88.10
+
+
+
+export MINION_STATUS=/var/minion/service
+
+#minon port X status in /var/minon/ports/X
+
+export PORT_STATUS=`dirname $MINION_STATUS`/ports/$MPORT
+mkdir -p `dirname $PORT_STATUS`
+
+echo "V-C VXLan Port Created" > $PORT_STATUS
+echo "V-C VXLan Port Created" > $MINION_STATUS
+
+# Recreate or Create VXlan adapter if it doesn't exist
+
+export MINION_STATUS=/var/minion/service
+##%	 ip link add vxlan0 type vxlan id 21 dev eth2 dstport 8472
+	 ip link add $MPORT type vxlan id $MPORT_ID dev $IPSEC_ADAPTER dstport 8472
+
+# Check availability of IPsec peer server (unencrypted IP address)
+ping -c 1 -w 4 moon
+if [[ $? != 0 ]]; then
+   echo "IPsec target unreachable."
+else
+ echo "I-A Peer Available" > $MINION_STATUS
+fi
+
+##%         bridge fdb add 00:00:00:00:00:00 dst 192.100.88.10 dev vxlan0 # dst is remote ip sec IP addr
+         bridge fdb add 00:00:00:00:00:00 dst $REMOTE_IPSEC_ADDR dev $MPORT # dst is remote ip sec IP addr
+##%        ip link set up vxlan0
+        ip link set up $MPORT
+        systemctl enable openvswitch; systemctl start openvswitch
+        echo "export PATH=/usr/local/bin:/usr/share/openvswitch/scripts/:$PATH" >> /etc/bashrc
+        export PATH=/usr/local/bin:/usr/share/openvswitch/scripts/:$PATH
+        hash
+        ovs-ctl start
+         systemctl enable openvswitch; systemctl start openvswitch
+         ovs-vsctl add-br ovs-br1
+         	ovs-vsctl add-port ovs-br1 eth1
+##%         ovs-vsctl add-port ovs-br1 vxlan0
+         ovs-vsctl add-port ovs-br1 $MPORT
+	         ifconfig ovs-br1 192.7.7.10/24 ## debugging
+
+# Firewall rules for IPsec and DHCP service
+	firewall-cmd --zone=dmz --permanent --add-rich-rule='rule protocol value="esp" accept'
+     firewall-cmd --zone=dmz --permanent --add-rich-rule='rule protocol value="ah" accept'
+     firewall-cmd --zone=dmz --permanent --add-port=500/udp
+     firewall-cmd --zone=dmz --permanent --add-port=4500/udp
+     firewall-cmd --permanent --add-service="ipsec"
+    firewall-cmd --permanent --add-port=8472/udp # vxlan port
+    firewall-cmd --permanent --add-port=8472/udp --zone=dmz # vxlan port
+     firewall-cmd --permanent --add-service=dhcp # allow L2 DHCP request thru vxlan
+     firewall-cmd --permanent --add-service=tftp # allow L2 DHCP request thru vxlan
+     firewall-cmd --list-all --zone=dmz
+ firewall-cmd --add-interface=ovs-br1 --zone=juno --permanent
+ firewall-cmd --add-source=192.7.7.0/24 --zone=juno --permanent
+firewall-cmd --reload
+     swanctl --load-all # Will wait from connection from outside.
+
+if [[ $? == 0 ]]; then
+ echo "I-LC Configuration Loaded" > $MINION_STATUS
+fi
+
+
+ echo "I-CA IPsec Connection Attempt" > $MINION_STATUS
+
+     swanctl -i -c host-host
+
+if [[ $? != 0  ]]; then
+ echo "Attempt to create IPsec tunnel failed."
+ exit
+fi
+echo "I-TO IPsec Tunnel Open" > $MINION_STATUS
+systemctl restart squid
