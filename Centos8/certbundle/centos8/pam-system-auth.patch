@@ -1,0 +1,13 @@
+--- system-auth.orig	2020-05-08 15:18:07.372971619 +0000
++++ system-auth	2020-05-08 15:18:27.574128757 +0000
+@@ -5,7 +5,9 @@
+ auth        required                                     pam_faildelay.so delay=2000000
+ auth        [default=1 ignore=ignore success=ok]         pam_succeed_if.so uid >= 1000 quiet
+ auth        [default=1 ignore=ignore success=ok]         pam_localuser.so
+-auth        sufficient                                   pam_unix.so nullok try_first_pass
++#auth        sufficient                                   pam_unix.so nullok try_first_pass
++auth  requisite pam_unix.so nullok try_first_pass
++auth  sufficient pam_duo.so
+ auth        requisite                                    pam_succeed_if.so uid >= 1000 quiet_success
+ auth        sufficient                                   pam_sss.so forward_pass
+ auth        required                                     pam_deny.so

@@ -1,0 +1,67 @@
+       firewall-cmd --new-zone=juno --permanent
+
+        firewall-cmd --zone=juno --add-port 3130/udp --permanent
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+    #    firewall-cmd --add-masquerade --permanent
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+        firewall-cmd -q --zone=dmz --permanent --add-rich-rule='rule protocol value="esp" accept'
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+     firewall-cmd -q --zone=dmz --permanent --add-rich-rule='rule protocol value="ah" accept'
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+        firewall-cmd -q --zone=dmz --permanent --add-port=500/udp
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+        firewall-cmd -q --zone=dmz --permanent --add-port=4500/udp
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+        firewall-cmd -q --permanent --add-service="ipsec"
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+	firewall-cmd -q --permanent --add-port=8472/udp # vxlan port
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+        firewall-cmd -q --permanent --add-port=8472/udp --zone=dmz # vxlan port
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+	 firewall-cmd -q --add-interface=ovs-br1 --zone=juno --permanent
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+	 firewall-cmd -q --add-source=192.7.7.0/24 --zone=juno --permanent
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+     firewall-cmd --permanent --add-service=dhcp # allow L2 DHCP request thru vxlan
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+     firewall-cmd --permanent --add-service=tftp # allow L2 DHCP request thru vxlan
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+        firewall-cmd --zone=juno --add-service dns --permanent
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+        firewall-cmd --zone=juno --add-service squid --permanent
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+        firewall-cmd --zone=juno --add-port 3130/udp --permanent
+
+    firewall-cmd --reload 
+  ping -c 5 192.100.88.10
+firewall-cmd --reload

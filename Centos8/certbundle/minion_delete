@@ -1,0 +1,130 @@
+#!/bin/bash
+# Minion_delete
+# Purpose: Delete the vxlan minion port on a system - port must be in a
+# V-* state, and puts the status as I-TO.
+
+
+# Syntax: minion_delete -m minion-port-name 
+
+
+####-i ipsec-adapter-name -a remote-ipsec-address -v VXLAN-id
+# Delete minion port name PORT 
+#####
+
+# Create minion port name PORT with VXlan ID N
+OPTERR=1
+MPORT=""
+MPORT_ID=""
+IPSEC_ADAPTER=""
+REMOTE_IPSEC_ADDR=""
+
+export MPORT=vxlan0
+export MPORT_ID=21
+export IPSEC_ADAPTER=eth2 
+export REMOTE_IPSEC_ADDR=192.100.88.10
+
+export VAGRANT_ROLE="spoke"  
+
+export REMOTE_IRISIP=$REMOTE_IPSEC_ADDR
+
+export LOCALIP=192.7.7.4
+
+
+# Process options for create operation
+while getopts m:i:a:v:r:h option
+do
+   case "${option}" 
+   in
+   m) MPORT=${OPTARG};;
+   a) REMOTE_IPSEC_ADDR=${OPTARG};;
+   h) echo "Syntax: delete -m minion-port-name"
+   esac
+done
+if [[ $MPORT == "" ]]; then
+  echo Minion port name missing.
+  exit 1
+fi
+
+if [[ $REMOTE_IPSEC_ADDR == "" ]]; then
+  echo Remote IP address of IPsec tunnel missing.
+  exit 1
+fi
+
+#export MPORT=vxlan0
+#export MPORT_ID=21
+#export IPSEC_ADAPTER=eth2 
+#export REMOTE_IPSEC_ADDR=192.100.88.10
+#export VAGRANT_ROLE="spoke"  
+
+export MINION_STATUS=/var/minion/service
+
+test -e $MINION_STATUS
+if [[ $? == 1  ]]; then
+ # Not there - exit with error
+ echo "Cannot delete minion with no state information present."
+ exit 1
+else
+ echo -n  "Existing minion status: " 
+ cat $MINION_STATUS
+fi
+
+# Verify that minion status is V-*
+
+export PORT_STATUS=`dirname $MINION_STATUS`/ports/$MPORT
+# Check minions state to delete minion port
+cat $PORT_STATUS | grep "V-Up"
+if [[ $? != 0  ]]; then
+ echo "Port not in correct state for delete operation."
+ exit 1
+fi
+
+# Transition state to V-Dn for the port status
+
+echo "V-Dn VXlan adapter down" > $PORT_STATUS
+
+
+# Reverse the create operation...
+
+#   remove vxlan interface from openvswitch switch
+ovs-vsctl --if-exists del-port ovs-br1 $MPORT
+if [[ $? != 0 ]]; then
+	echo "Delete operation ovs-vctl port delete failed."
+	exit 1
+fi
+
+#   turn off link
+ip link set down $MPORT
+if [[ $? != 0 ]]; then
+	echo "Delete operation ip link set down failed."
+	exit 1
+fi
+
+#   bridge fdb remove
+bridge fdb del 00:00:00:00:00:00 dst $REMOTE_IPSEC_ADDR dev $MPORT
+if [[ $? != 0 ]]; then
+	echo "Delete operation bridge fdb del failed."
+	exit 1
+fi
+
+#   ip link delete the vxlan adapter
+ip link delete $MPORT
+if [[ $? != 0 ]]; then
+	echo "Delete operation ip link delete failed."
+	exit 1
+fi
+
+####   remove openvswitch switch
+
+# Run ping test to ensure IPsec tunnel is still up.
+ping -c 1 -w 40 $REMOTE_IPSEC_ADDR
+if [[ $? != 0 ]]; then
+   echo "IPsec tunnel host unreachable. This is required to establish vxlan tunnel."
+   echo "I-TC IPsec Tunnel Closed" > $MINION_STATUS
+   exit 0
+else
+   # change minion state to IPse tunnel to open I-TO.
+   echo "I-TO IPsec Tunnel Open" > $MINION_STATUS
+   exit 0
+fi
+
+exit 0
