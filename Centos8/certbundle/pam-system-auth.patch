@@ -1,0 +1,12 @@
+--- system-auth.orig    2020-03-09 16:00:46.612280161 +0000
++++ system-auth-ac 2020-03-09 16:01:33.484980397 +0000
+@@ -3,7 +3,9 @@
+ # User changes will be destroyed the next time authconfig is run.
+ auth        required      pam_env.so
+ auth        required      pam_faildelay.so delay=2000000
+-auth        sufficient    pam_unix.so nullok try_first_pass
++#auth        sufficient    pam_unix.so nullok try_first_pass
++auth  requisite pam_unix.so nullok try_first_pass
++auth  sufficient pam_duo.so
+ auth        requisite     pam_succeed_if.so uid >= 1000 quiet_success
+ auth        required      pam_deny.so

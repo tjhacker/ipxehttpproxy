@@ -1,0 +1,582 @@
+#!/bin/bash
+
+# boot_service
+# Purpose: start the minion services necessary for the remote 
+#  booting service on a server (hub)
+
+# Syntax: boot_service -m <minion port> -r <hub|spoke> -i <optional local interface>
+
+#      This service script is called from the mservice_start operation
+#      and provides an extensible environment more complex operations.  
+
+
+# 6.     e) keep the service running; (supervisord?) (S-Up)
+#  7. update status of minion service for the minion port
+
+
+
+
+
+
+# Start minion service on minion PORT 
+OPTERR=1
+MPORT=""
+MPORT_ID=""
+IPSEC_ADAPTER=""
+REMOTE_IPSEC_ADDR=""
+LOCAL_ADAPTER="undefined"
+DNS=192.7.7.4
+
+export MPORT=vxlan0
+#export MPORT_ID=21
+#export IPSEC_ADAPTER=eth2 
+#export REMOTE_IPSEC_ADDR=192.100.88.10
+
+#export VAGRANT_ROLE="spoke"  
+
+#export REMOTE_IRISIP=$REMOTE_IPSEC_ADDR
+
+export LOCALIP=192.7.7.10
+
+# Process options for create operation
+#while getopts m:i:a:v:r:h option
+while getopts m:r:i:h option
+do
+   case "${option}" 
+   in
+   m) MPORT=${OPTARG};;
+   i) LOCAL_ADAPTER=${OPTARG};;
+#   a) REMOTE_IPSEC_ADDR=${OPTARG};;
+#   v) MPORT_ID=${OPTARG};;
+    r) VAGRANT_ROLE=${OPTARG};;
+   h) echo "Syntax: boot_service -m minion-port-name -r <hub|spoke> -i <optional local interface>"
+   esac
+done
+if [[ $MPORT == "" ]]; then
+  echo Minion port name missing.
+  exit 1
+fi
+
+#if [[ $MPORT_ID == "" ]]; then
+#  echo VXLAN id missing.
+#  exit 1
+#fi
+
+#if [[ $IPSEC_ADAPTER == "" ]]; then
+#  echo IPsec adapter name missing.
+#  exit 1
+#fi
+
+#if [[ $REMOTE_IPSEC_ADDR == "" ]]; then
+#  echo Remote IP address of IPsec tunnel missing.
+#  exit 1
+#fi
+
+if [[ $VAGRANT_ROLE == "" ]]; then
+  echo "Boot service role (hub or spoke) missing."
+  exit 1
+fi
+
+#export MPORT=vxlan0
+#export MPORT_ID=21
+#export IPSEC_ADAPTER=eth2 
+#export REMOTE_IPSEC_ADDR=192.100.88.10
+#export VAGRANT_ROLE="spoke"  
+
+
+# 1. Ensure minion port status is in the correct state
+#  1.a Check minion service status to ensure it is ready and in the correct state
+
+export MINION_STATUS=/var/minion/service
+
+mkdir -p `dirname $MINION_STATUS`
+#minon port X status in /var/minon/ports/X
+export PORT_STATUS=`dirname $MINION_STATUS`/ports/$MPORT
+
+echo "PS" $PORT_STATUS
+
+test -e $PORT_STATUS
+if [[ $? == 1  ]]; then
+ # Not there - exit with error
+ echo "No minion port status, exiting."
+ exit 1
+else
+ echo -n  "Existing minion port status: " 
+ cat $PORT_STATUS
+fi
+
+# Verify that minion port is availble and ready for the service
+if [[ `cat $PORT_STATUS | grep "V-Up"` ]]; then
+	echo "Minion service port ready."
+else 
+	echo "Minion service port not in state V-Up, exiting."
+	exit 1
+fi
+
+
+# 2. Check minion service prereqs for this service (state S-PR)
+# Ensure packages are installed - if not, install them
+# be aware of serial ordering constraints
+#        2.a yum install if not present: dnsmasq, ipxe, tftp, genisoimage, lighttpd, squid, php, mod_fcgid, selinux?
+
+#       2.b ipxe and patches for http_proxy
+
+   cd /usr/local/src
+   test -e ./ipxehttpproxy
+   if [[ $? != 0 ]]; then
+	 git clone https://github.com/tjhacker/ipxehttpproxy.git
+   fi
+
+
+##### Set up iPXE on DNSmasq server
+   if [[ $VAGRANT_ROLE == "hub" ]]; then
+	# create patched ipxe with HTTP proxy support
+	cd /usr/local/src/ipxe
+	test -e /usr/local/src/ipxe
+   	if [[ $? != 0 ]]; then
+		git clone git://github.com/ipxe/ipxe.git
+		patch -p1 < ipxehttpproxy/proxypatch.p
+		cp ipxehttpproxy/embedded.pxe src/embedded.pxe
+		cd src
+		make EMBED=embedded.pxe -j 4
+		cp /usr/local/src/ipxe/src/bin/undionly.kpxe /var/lib/tftpboot
+	fi
+    fi
+ 
+#         2.c verify firewall/ebtables prereqs present
+
+rpm -q dnsmasq dnsmasq-utils tftp-server tftp syslinux-tftpboot ipxe-bootimgs git xz-devel genisoimage squid lighttpd php mod_fcgid lighttpd-fastcgi
+
+if [[ $? != 0 ]]; then
+  echo "Package(s) missing. Installing required packages."
+  yum -y install dnsmasq dnsmasq-utils tftp-server tftp syslinux-tftpboot ipxe-bootimgs git xz-devel genisoimage squid lighttpd php mod_fcgid lighttpd-fastcgi
+else
+  echo "Required packages installed."
+fi
+
+##if [[ $LOCAL_ADAPTER != "undefined" ]]; then
+#	firewall-cmd --add-interface=$LOCAL_ADAPTER --zone=dmz --permanent
+#fi
+
+
+   firewall-cmd --permanent --zone=juno --get-description
+   if [[ $? != 0 ]]; then
+	firewall-cmd --new-zone=juno --permanent
+	firewall-cmd --reload
+   fi
+
+#	firewall-cmd --runtime-to-permanent
+
+    firewall-cmd --zone=juno --query-service dhcp --permanent
+    if [[ $? != 0 ]]; then
+	firewall-cmd --zone=juno --add-service dhcp --permanent
+    fi
+
+	firewall-cmd --zone=juno --query-service tftp --permanent
+    if [[ $? != 0 ]]; then
+	firewall-cmd --zone=juno --add-service tftp --permanent
+    fi
+
+##	firewall-cmd --zone=dmz --query-service dns --permanent
+ ##   if [[ $? != 0 ]]; then
+##	firewall-cmd --zone=dmz --add-service dns --permanent
+ ##   fi
+
+
+	firewall-cmd --zone=juno --query-service dns --permanent
+    if [[ $? != 0 ]]; then
+	firewall-cmd --zone=juno --add-service dns --permanent
+    fi
+
+   firewall-cmd --query-interface=ovs-br1 --zone=juno --permanent
+   if [[ $? != 0 ]]; then
+	firewall-cmd --add-interface=ovs-br1 --zone=juno --permanent
+   fi
+
+
+# MAYBE JUST ON SPOKE STARTING HERE?
+    if [[ $LOCAL_ADAPTER != "undefined" ]]; then
+	firewall-cmd --add-interface=$LOCAL_ADAPTER --zone=juno --permanent
+    fi
+
+	firewall-cmd --zone=juno --query-service squid --permanent
+    if [[ $? != 0 ]]; then
+	firewall-cmd --zone=juno --add-service squid --permanent
+    fi
+
+### END SPOKE PART?
+
+	firewall-cmd --zone=juno --query-port 3130/udp --permanent
+    if [[ $? != 0 ]]; then
+	firewall-cmd --zone=juno --add-port 3130/udp --permanent
+    fi
+
+     firewall-cmd --add-masquerade --permanent
+###     firewall-cmd --zone=dmz --set-target=DROP --permanent  #  BLOCK ALL ICMP
+     firewall-cmd --reload
+
+
+
+# 3. Create configuraion files (S-LC)
+#    configure service config files; this would need to be done in the specific service script - be aware of serial ordering constraints.  
+
+   if [[ $VAGRANT_ROLE == "hub" ]]; then
+##### HTTP server setup
+	sed -i 's/server.use-ipv6 = "enable"/server.use-ipv6 = "disable"/' /etc/lighttpd/lighttpd.conf
+	# Add fastCGI conf to lighttpd 
+	cat /usr/local/src/ipxe/ipxehttpproxy/fastcgi.conf_addition >> /etc/lighttpd/conf.d/fastcgi.conf
+	cp /usr/local/src/ipxe/ipxehttpproxy/foo.php /var/www/lighttpd/foo.php
+	mkdir /var/www/localhost
+	cp /etc/php.ini /var/www/localhost
+	sed -i "s:;cgi.fix_pathinfo:cgi.fix_pathinfo:" /var/www/localhost/php.ini
+	sed -i 's:#include "conf.d/fastcgi.conf:include "conf.d/fastcgi.conf:' /etc/lighttpd/modules.conf
+
+
+#### Configure Kickstart file for remote booting
+	cp /usr/local/src/ipxe/ipxehttpproxy/ks.cfg /var/www/lighttpd/ks.cfg
+   fi
+
+##### SQUID cache setup
+   sed -i "s:\#cache_dir ufs /var/spool/squid 100 16 256:cache_dir ufs /var/spool/squid 100000 16 256:" /etc/squid/squid.conf	 
+   echo "maximum_object_size 40 GB" >> /etc/squid/squid.conf
+   echo "acl localnet src 192.7.0.0/16   # RFC1918 possible internal network" >> /etc/squid/squid.conf
+
+   echo "icp_port 3130" >> /etc/squid/squid.conf
+   echo "icp_access allow localnet" >> /etc/squid/squid.conf 
+   squid -z
+
+
+
+# 4. Start process that uses the minion port (vxlan0)
+#   start processes; this is done in the specific service script - be aware of serial ordering constraints (S-SA Start Attempt -> S-Up Service Up) - where is state maintained?
+
+
+	if [[ $VAGRANT_ROLE == "hub" ]]; then
+	# jumphost was masking DNS that refers requests to main server
+		systemctl enable lighttpd; systemctl start lighttpd
+
+		dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=ovs-br1 --dhcp-range=192.7.7.30,192.7.7.35,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/juno.load/$DNS --server=8.8.4.4 --dhcp-option=6,$LOCALIP
+	fi
+	
+	if [[ $VAGRANT_ROLE == "spoke" ]]; then
+		echo "cache_peer 192.7.7.4 parent 3128 3130 default" >> /etc/squid/squid.conf
+		dnsmasq --interface=ovs-br1 --address=/juno.load/$LOCALIP --server=$DNS
+	fi
+
+	sleep 5; systemctl enable squid; systemctl start squid
+
+# 5.  check correctness and correct operating of the service;  - how can I check this?
+# what needs to be confirmed: service is running; service is connected to the vxlan adapter; service responds to requests
+  # Check dnmasq, lightthpd, and squid
+
+
+  ps -eaf | grep dnsmasq | grep -v grep
+
+  if [[ $? != 0 ]]; then
+ 	echo "dnsmasq not running."
+	exit 1
+  fi
+
+
+   if [[ $VAGRANT_ROLE == "hub" ]]; then
+	systemctl status lighttpd
+  	if [[ $? != 0 ]]; then
+ 		echo "Lighttpd not running."
+		exit 1
+	fi
+   fi
+
+  systemctl status squid
+
+  if [[ $? != 0 ]]; then
+ 	echo "Squid not running."
+	exit 1
+  fi
+
+
+
+
+
+
+exit
+#
+#
+# start minion service
+
+# Keep state in a file in /var/minion <- probably start here to keep complexity down until I know I need to use systemctl
+
+#use minionctl to start with, can transition to systemctl someday if needed
+
+
+# Verify prerequisites (I-PR) for minion ports      
+# what are prereqs ?
+#  1. necessary packages installed 
+#	strongswan openvswitch libibverbs policycoreutils-python openssl-devel pam-devel selinux-policy-devel duo_unix fail2ban 
+
+
+
+# 1.1 Configure hostfile
+
+ 
+    if [ $VAGRANT_ROLE == "hub" ]
+    then
+# %DNSmasq
+       m4 -DMOON_IPADDR="10.210.210.41" /usr/local/src/ipxe/ipxehttpproxy/strongswan/hosts.m4 > /etc/hosts
+    fi
+
+    if [ $VAGRANT_ROLE == "spoke" ]
+    then
+    # %jumphost
+        cat /usr/local/src/ipxe/ipxehttpproxy/Juno/hosts >> /etc/hosts
+    fi
+
+
+#  1.2. Ensure necessary services started and running (I-A)
+#	strongswan openvswitch selinux firewall duo_unix fail2ban
+if [[ `systemctl is-active strongswan openvswitch firewalld fail2ban  | egrep "(inactive|unknown)"` ]]; then
+   echo "Systems not ready. Starting necessary systems."
+	systemctl enable strongswan; systemctl start strongswan
+	systemctl enable openvswitch; systemctl start openvswitch
+	systemctl enable fail2ban; systemctl start fail2ban
+else
+   echo "Required systems ready."
+fi
+
+
+# 1.3. configure and check firewall options 
+# Check that critical ports for ipsec and vxlan are ready.
+
+# Add firewall rules to allow IPsec and VXlan
+     firewall-cmd --zone=dmz --permanent --add-rich-rule='rule protocol value="esp" accept'
+     firewall-cmd --zone=dmz --permanent --add-rich-rule='rule protocol value="ah" accept'
+     firewall-cmd --zone=dmz --permanent --add-port=500/udp
+     firewall-cmd --zone=dmz --permanent --add-port=4500/udp
+     firewall-cmd --permanent --add-service="ipsec"
+     firewall-cmd --permanent --add-port=8472/udp # vxlan port
+     firewall-cmd --permanent --add-port=8472/udp --zone=dmz # vxlan port
+
+     firewall-cmd --reload
+
+     systemctl start NetworkManager
+
+# 1.4. Prevent auto DNS assignment to system
+
+    nmcli con show "System eth0" | grep ipv4.ignore-auto-dns 
+    if [[ $? != 'yes' ]]; then
+      nmcli con mod "System eth0" ipv4.ignore-auto-dns yes
+    fi
+
+    nmcli con up "System eth0"
+    nmcli general hostname apollo.load ### XYZZY
+
+echo "I-PR Prequiresites Verified" > $MINION_STATUS
+
+
+# 2. Check availability of IPsec peer server on network (unencrypted IP address) (I-A)
+ping -c 1 -w 4 moon ### XYZZY
+if [[ $? != 0 ]]; then
+   echo "IPsec target host unreachable. This is required to establish IPsec tunnel."
+else
+ echo "I-A Peer Available" > $MINION_STATUS
+fi
+
+# 3. Configure strongswan and load configuration files
+# Setup and start ipsec (strongswan)
+
+# 3.1 Certificate management
+#  %DNSmasq
+
+        if [ $VAGRANT_ROLE == "hub" ]
+	then
+		mkdir -p /home/vagrant/certs
+		cd /home/vagrant/certs
+		# Create X509 certficates for server and jumphost
+		strongswan pki --gen --outform pem > CAKey.key
+		strongswan pki --self --in CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=strongSwan CA" --ca --outform pem > CA.crt
+		strongswan pki --gen --outform pem > hostSunKey.key
+		strongswan pki --gen --outform pem > hostMoonKey.key
+		strongswan pki --issue --in hostSunKey.key --type priv --cacert CA.crt --cakey CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=sun.localdomain, OU=CIT" --san sun.localdomain --outform pem   > hostSunCert.crt 
+		strongswan pki --issue --in hostMoonKey.key --type priv --cacert CA.crt --cakey CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=moon.localdomain,OU=CIT" --san moon.localdomain --outform pem    > hostMoonCert.crt 
+	fi
+
+        if [ $VAGRANT_ROLE == "spoke" ]
+	then	
+		# Copy over necessary X509 certs using DUO 2FA secure remote copy
+		rsync -e "ssh -p 59842 -o 'StrictHostKeyChecking no'" vagrant@moon:/home/vagrant/certs/CA.crt vagrant@moon:/home/vagrant/certs/host*Cert.crt vagrant@moon:/home/vagrant/certs/hostSunKey.key  /home/vagrant/certs
+
+  		if [[ $? != 0 ]]; then
+			echo "rsync failed."
+			exit 1
+		  fi 
+
+	fi
+
+# 3.2. Create custom strongswan configuration file depending on role.
+
+        if [ $VAGRANT_ROLE == "hub" ]
+	then
+           # strongswan configuration file for hub
+             m4 -D__LOCAL_FQDN="moon.localdomain" -D__LOCAL_CERT="hostMoonCert.crt" -D__LOCALIP_TS="192.100.88.0/24" -D__REMOTEIP_TS="192.100.42.0/24" /usr/local/src/ipxe/ipxehttpproxy/strongswan/uni.conf.m4 > /etc/strongswan/swanctl/conf.d/Olympus.ab.conf
+	    cp /home/vagrant/certs/hostMoonKey.key /etc/strongswan/swanctl/private
+	fi
+
+        if [ $VAGRANT_ROLE == "spoke" ]
+	then
+            # strongswan configuration file for spoke
+	    m4 -D__LOCAL_FQDN="sun.localdomain" -D__REMOTE_FQDN="moon.localdomain" -D__LOCAL_CERT="hostSunCert.crt" -D__REMOTE_CERT="hostMoonCert.crt" -D__LOCALIP_TS="192.100.42.0/24" -D__REMOTEIP_TS="192.100.88.0/24" /usr/local/src/ipxe/ipxehttpproxy/strongswan/uni.conf.m4 > /etc/strongswan/swanctl/conf.d/ab.conf
+	    cp /home/vagrant/certs/hostSunKey.key /etc/strongswan/swanctl/private
+	fi
+
+# 3.3 Install certficates for strongswan and start strongswan
+     cp /home/vagrant/certs/CA.crt /etc/strongswan/swanctl/x509ca
+     cp /home/vagrant/certs/host*Cert.crt /etc/strongswan/swanctl/x509
+
+     systemctl enable strongswan
+     systemctl start strongswan
+
+
+# Turn on strongswan connectivity
+
+  swanctl --load-all 
+  if [[ $? != 0 ]]; then
+	echo "swanctl --load-all failed."
+	exit 1
+  fi 
+
+ echo "I-LC Configuration Loaded" > $MINION_STATUS
+
+
+ echo "I-TC Tunnel Closed" > $MINION_STATUS
+
+
+ echo "I-CA IPsec Connection Attempt" > $MINION_STATUS
+
+     swanctl -i -c host-host
+
+     if [[ $? != 0  ]]; then
+        echo "Attempt to create IPsec tunnel failed."
+        exit 1
+     fi
+
+# X. Test to see if other end of IPsec tunnel can be reached before
+#     attempt to create VXlan connection.
+
+ping -c 1 -w 40 $REMOTE_IPSEC_ADDR
+if [[ $? != 0 ]]; then
+   echo "IPsec tunnel host unreachable. This is required to establish vxlan tunnel."
+   exit 1
+else
+   echo "I-TO IPsec Tunnel Open" > $MINION_STATUS
+fi
+
+
+# 4. Create vxlan adapter (I-TC)
+# VXLAN setup
+  # See if it already exists
+  ip link show vxlan0
+  if [[ $? != 0 ]] ; then
+  	ip link add vxlan0 type vxlan id 21 dev eth2 dstport 8472
+	  if [[ $? != 0 ]]; then
+		echo "vxlan adapter creation failed."
+		exit 1
+  	fi
+   fi
+
+echo "V-C VXLan Port Created" > $PORT_STATUS
+echo "V-C VXLan Port Created" > $MINION_STATUS
+
+
+   export BRDG=""
+   export BRDG=`bridge fdb show 00:00:00:00:00:00 dst $REMOTE_IRISIP dev vxlan0 # dst is remote ip sec IP addr`
+   if [[ $BRDG == "" ]]; then
+	   bridge fdb add 00:00:00:00:00:00 dst $REMOTE_IRISIP dev vxlan0 # dst is remote ip sec IP addr
+	  if [[ $? != 0 ]]; then
+		echo "bridge fdb add failed."
+		exit 1
+	  fi
+   fi
+
+
+  ip link set up vxlan0
+  if [[ $? != 0 ]]; then
+	echo "VXlan ip link up failed."
+	exit 1
+  fi
+# 4.1 setup openvswitch to provide virtual switch for vxlan adapter
+
+        systemctl enable openvswitch; systemctl start openvswitch
+
+        echo "export PATH=/usr/local/bin:/usr/share/openvswitch/scripts/:$PATH" >> /etc/bashrc
+        export PATH=/usr/local/bin:/usr/share/openvswitch/scripts/:$PATH
+        hash
+        ovs-ctl start
+
+  	if [[ $? != 0 ]]; then
+		echo "ovs-ctl start failed."
+		exit 1
+        fi
+	
+        ovs-vsctl --may-exist add-br ovs-br1
+	if [[ $? != 0 ]]; then
+		echo "ovs-vsctl add-br failed."
+		exit 1
+       	fi
+
+# 4.2 add vxlan adapter and external NIC (for spoke) to minion bridge 
+        if [ $VAGRANT_ROLE == "spoke" ]
+	then
+         	ovs-vsctl --may-exist add-port ovs-br1 eth1 # For external NIC
+  		if [[ $? != 0 ]]; then
+			echo "attempt to add adapter to vxlan bridge failed."
+			exit 1
+		fi
+	fi
+        
+        ovs-vsctl --may-exist add-port ovs-br1 vxlan0
+  	if [[ $? != 0 ]]; then
+		echo "attempt to add vxlan adapter to openvswitch switch failed."
+		exit 1
+	fi
+
+	ifconfig ovs-br1 $LOCALIP/24
+
+# Use supervisor on hub to keep ethereal test point active
+
+        if [ $VAGRANT_ROLE == "hub" ]
+	then
+		cat /vagrant_data/supervisor >> /etc/supervisord.conf 
+		systemctl start supervisord
+		### /usr/local/bin/etherate -r -i vxlan0 &
+	fi
+
+
+##./setup_ipsec.sh spoke $REMOTE_IPSEC_ADDR 192.7.7.10
+
+
+# Test VXlan connnection  - note that this assumes etherate is running on the
+# other end of the VXlan connection is server mode
+
+        if [ $VAGRANT_ROLE == "spoke" ]
+	then
+		timeout -s INT 120 etherate -i vxlan0 -Q 1000 1000 -t 5
+		if [[ $? != 0 ]]; then
+	           echo "Verification of open VXlan connection failed."
+	   	   exit 1
+		fi
+	fi
+
+echo "V-Up VXLan Port Up" > $PORT_STATUS
+echo "V-Up VXLan Port Up" > $MINION_STATUS
+
+exit 0
+##systemctl restart squid
+
+
+
+
+
+# Recreate or Create VXlan adapter if it doesn't exist
+
+
+##%	 ip link add vxlan0 type vxlan id 21 dev eth2 dstport 8472
+	 ip link add $MPORT type vxlan id $MPORT_ID dev $IPSEC_ADAPTER dstport 8472

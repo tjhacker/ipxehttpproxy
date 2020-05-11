@@ -1,0 +1,506 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# Need Vagrant level variable
+# 1. String identifying host interface for Vagrant to create bridge to
+BRIDGE_INTERFACE = "Intel(R) Dual Band Wireless-AC 8260"
+#BRIDGE_INTERFACE = "enp8s0f0"
+# 2. Local non routable IPsec protected IP address - should be e.g. 192.0.0.0/8
+LOCAL_IRISIP = "192.100.42.20"
+# 3. Remote non routable IPsec protected IP address 
+REMOTE_IRISIP = "192.100.88.10"
+
+# 4. Role expected from the VM brought up by the Vagrantfile
+# Currently have:  %all, %jumphost, %dnsmasq
+#VAGRANT_ROLE = "dnsmasq"
+VAGRANT_ROLE = "jumphost"
+# 5. Minion ethernet broadcast domain address space
+LOCAL_CIDR = "192.7.7.0/24"
+# 6. ssh port that is not 22
+SSH_PORT = 59842
+#SSH_PORT = 22
+
+# Need to generate:
+# 1. /etc/hosts
+# 2. strongswan connection file
+#  
+# Need to configure:
+# 1. VM external IP addresses
+# 2. VM hostname
+# 3. strongswan files (x509 certs, config, and connection)
+# 4. VXLAN parameters
+# 5. 
+#
+
+#LOCALIP = "192.168.20.2"
+LOCALIP = "192.7.7.10"
+
+
+  
+ 
+
+# All Vagrant configuration is done below. The "2" in Vagrant.configure
+# configures the configuration version (we support older styles for
+# backwards compatibility). Please don't change it unless you know what
+# you're doing.
+Vagrant.configure("2") do |config|
+  # The most common configuration options are documented and commented below.
+  # For a complete reference, please see the online documentation at
+  # https://docs.vagrantup.com.
+
+  # Every Vagrant development environment requires a box. You can search for
+  # boxes at https://vagrantcloud.com/search.
+  config.vm.box = "generic/centos7"
+
+  # Disable automatic box update checking. If you disable this, then
+  # boxes will only be checked for updates when the user runs
+  # `vagrant box outdated`. This is not recommended.
+  # config.vm.box_check_update = false
+
+  # Create a forwarded port mapping which allows access to a specific port
+  # within the machine from a port on the host machine. In the example below,
+  # accessing "localhost:8080" will access port 80 on the guest machine.
+  # NOTE: This will enable public access to the opened port
+  # config.vm.network "forwarded_port", guest: 80, host: 8080
+config.vm.network "forwarded_port", guest: 59842, host: 1234
+
+  # Create a forwarded port mapping which allows access to a specific port
+  # within the machine from a port on the host machine and only allow access
+  # via 127.0.0.1 to disable public access
+  # config.vm.network "forwarded_port", guest: 80, host: 8080, host_ip: "127.0.0.1"
+
+  # Create a private network, which allows host-only access to the machine
+  # using a specific IP.
+
+   config.vm.network "private_network", ip: "192.7.7.100", virtualbox__intnet: "pxe test"
+##config.vm.network "public_network", bridge: "Intel(R) Ethernet Connection (2) I219-LM"
+
+#   config.vm.network "private_network", ip: LOCALIP, virtualbox__intnet: "pxe test 2"
+  config.vm.network "public_network", bridge: BRIDGE_INTERFACE
+  config.vm.network "private_network", ip: LOCAL_IRISIP, virtualbox__intnet: "irisnet"
+
+ # This is for the jumphost
+  config.vm.provider "virtualbox" do |vb|
+        vb.customize ["modifyvm", :id, "--nicpromisc1", "allow-all"]
+        vb.customize ["modifyvm", :id, "--nicpromisc2", "allow-all"]
+        vb.customize ["modifyvm", :id, "--nicpromisc3", "allow-all"]
+   end
+
+
+  # Create a public network, which generally matched to bridged network.
+  # Bridged networks make the machine appear as another physical device on
+  # your network.
+  # config.vm.network "public_network"
+
+  # Share an additional folder to the guest VM. The first argument is
+  # the path on the host to the actual folder. The second argument is
+  # the path on the guest to mount the folder. And the optional third
+  # argument is a set of non-required options.
+  # config.vm.synced_folder "../data", "/vagrant_data"
+
+  # Provider-specific configuration so you can fine-tune various
+  # backing providers for Vagrant. These expose provider-specific options.
+  # Example for VirtualBox:
+  #
+  # config.vm.provider "virtualbox" do |vb|
+  #   # Display the VirtualBox GUI when booting the machine
+  #   vb.gui = true
+  #
+  #   # Customize the amount of memory on the VM:
+  #   vb.memory = "1024"
+  # end
+  #
+  # View the documentation for the provider you are using for more
+  # information on available options.
+
+  # Enable provisioning with a shell script. Additional provisioners such as
+  # Puppet, Chef, Ansible, Salt, and Docker are also available. Please see the
+  # documentation for more information about their specific syntax and use.
+
+ # Hacker - this is for creating the jumphost we need to boostrap a private cloud
+
+# Bring files from vagrant into VM
+
+   config.vm.synced_folder "./certbundle", "/vagrant_data"
+
+# Run shell configuration commands for each VM  
+
+
+   config.vm.provision "shell", inline: <<-SHELL, env:{"VAGRANT_ROLE" => VAGRANT_ROLE, "REMOTE_IRISIP"=>REMOTE_IRISIP, "LOCAL_IRISIP"=>LOCAL_IRISIP, "SSH_PORT"=>SSH_PORT }
+
+#   config.vm.provision "shell", inline: <<-SHELL
+
+# VAGRANT_ROLE imported from Vagrantfile
+export VAGRANT_ROLE=$VAGRANT_ROLE
+export LOCAL_IRISIP=$LOCAL_IRISIP
+export REMOTE_IRISIP=$REMOTE_IRISIP
+export SSH_PORT=$SSH_PORT
+echo "ABC"
+echo "Role is" $VAGRANT_ROLE
+echo "LOCAL IRISIP is" $LOCAL_IRISIP
+echo "REMOTE IRISIP is" $REMOTE_IRISIP
+
+
+
+
+# State 0 - bind variables and select role varaible
+# %All roles
+	
+
+
+# Need vars: 
+
+# Need variables bound for:
+# Internal host interface to which virtualbox can bridge
+
+# 1. External peer reachable hostname and IP address for IPsec
+# 2. connection 'host-host' name(s) for IPsec connection file
+# 3. VXLAN adpater name (minion port name)
+# 4. OpenVSwitch bridge name
+# 5. local interface (connected to external network) name for firewall rules
+export LOCAL_INTERFACE="eth0"
+# 6. x509 certificate file names
+# 7. 
+
+
+# Stage 1 - run OS updates and package installations
+# %All roles
+
+	yum -y update
+
+	yum -y install dnsmasq dnsmasq-utils tftp-server tftp syslinux-tftpboot ipxe-bootimgs git xz-devel genisoimage squid lighttpd php mod_fcgid lighttpd-fastcgi mod_fastcgi strongswan virt-manager libvirt-client fail2ban openssl-devel pam-devel selinux-policy-devel policycoreutils-python
+	 rpm --import https://duo.com/DUO-GPG-PUBLIC-KEY.asc
+	cp /vagrant_data/duosecurity.repo /etc/yum.repos.d
+	yum -y install duo_unix
+        cd /usr/local/src
+        wget https://rdoproject.org/repos/rdo-release.rpm
+        rpm -i rdo-release.rpm
+        yum -y install openvswitch libibverbs
+
+# Stage 2 - set up iPXE on DNSmasq server
+# %DNSmasq server role
+	
+	cd /usr/local/src; git clone git://github.com/ipxe/ipxe.git; cd ipxe; git clone https://github.com/tjhacker/ipxehttpproxy.git
+
+
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+		# create patched ipxe with HTTP proxy support
+		cd /usr/local/src/ipxe
+		patch -p1 < ipxehttpproxy/proxypatch.p
+		cp ipxehttpproxy/embedded.pxe src/embedded.pxe
+		cd src
+	
+		make EMBED=embedded.pxe -j 4
+
+		cp /usr/local/src/ipxe/src/bin/undionly.kpxe /var/lib/tftpboot
+	fi
+
+# Stage 3 - set up network security rules
+# %All roles    
+
+###	systemctl stop NetworkManager
+###	firewall-cmd --new-zone=juno --permanent
+###	firewall-cmd --reload
+#	firewall-cmd --zone=juno --change-interface=eth1 
+
+       # if [ $VAGRANT_ROLE == "jumphost" ]
+	#then
+###		firewall-cmd --add-interface=eth0 --zone=dmz --permanent
+###		firewall-cmd --add-service=ssh --zone=dmz --permanent # to be able to ssh into the system from vagrant
+#	fi
+
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+
+                ##yum -y install policycoreutils-python
+		semanage fcontext -a -t net_conf_t /etc/sysconfig/network-scripts/ifcfg-eth1 # Fix selinux problem
+		restorecon -R /etc/sysconfig/network-scripts/ifcfg-eth1
+		systemctl restart firewalld.service
+		firewall-cmd --add-interface=eth1 --zone=dmz --permanent
+	fi
+
+#	firewall-cmd --add-interface=$LOCAL_INTERFACE --zone=dmz --permanent
+
+#	firewall-cmd --runtime-to-permanent
+###	firewall-cmd --zone=juno --add-service dhcp --permanent
+###	firewall-cmd --zone=juno --add-service tftp --permanent
+###	firewall-cmd --zone=juno --add-service dns --permanent
+###	firewall-cmd --zone=juno --add-service squid --permanent
+###	firewall-cmd --zone=juno --add-port 3130/udp --permanent
+###	firewall-cmd --add-masquerade --permanent
+
+###### firewall-cmd --remove-service=ssh --zone=dmz --permanent
+# firewall-cmd --zone=dmz --set-target=DROP --permanent  #  BLOCK ALL ICMP
+
+
+###	firewall-cmd --reload
+###	systemctl start NetworkManager
+
+ if [ $VAGRANT_ROLE == "jumphost" ] 	
+ then
+
+#	DNS=`fgrep -m 1 nameserver /etc/resolv.conf | sed 's/nameserver //'`
+#	sed -i "s/$DNS/$LOCALIP/" /etc/resolv.conf
+#	nmcli con mod "System eth0" +ipv4.dns 192.7.7.4
+####	nmcli con mod "System eth0" ipv4.dns 192.7.7.4
+#	nmcli con mod "System eth0" ipv4.dns 192.7.7.10
+      nmcli con mod "System eth0" ipv4.ignore-auto-dns yes
+	 nmcli con up "System eth0"
+	nmcli general hostname apollo.load
+ fi
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+        then # jumphost was masking DNS that refers requests to main server
+                dnsmasq --interface=ovs-br1 --address=/juno.load/192.7.7.10 --server=192.7.7.4 
+	
+        fi
+
+# % DNSMasq server
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+
+#	nmcli general hostname moon.localhost
+
+	DNS=`fgrep -m 1 nameserver /etc/resolv.conf | sed 's/nameserver //'`
+	sed -i "s/$DNS/192.7.7.4/" /etc/resolv.conf
+	echo "nameserver 192.7.7.4" >> /etc/resolv.conf
+         chattr +i /etc/resolv.conf # Lock the file to prevent changes.
+
+		dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=ovs-br1 --dhcp-range=192.7.7.30,192.7.7.35,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/juno.load/192.7.7.4 --server=8.8.4.4 --dhcp-option=6,192.7.7.10
+####		dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=ovs-br1 --dhcp-range=192.7.7.30,192.7.7.35,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/zeus.load/192.7.7.4 --server=8.8.4.4 --dhcp-option=6,192.7.7.10
+
+		# Network routing rules and DNS
+	
+		ip addr add 10.210.210.41/24 dev eth1
+		ip route delete default
+		ip route add default via 10.210.210.1 dev eth1
+		echo "nameserver 8.8.4.4" >> /etc/resolv.conf	
+	fi
+
+
+# HTTP server setup
+
+	sed -i 's/server.use-ipv6 = "enable"/server.use-ipv6 = "disable"/' /etc/lighttpd/lighttpd.conf
+	# Add fastCGI conf to lighttpd 
+	cat /usr/local/src/ipxe/ipxehttpproxy/fastcgi.conf_addition >> /etc/lighttpd/conf.d/fastcgi.conf
+	cp /usr/local/src/ipxe/ipxehttpproxy/foo.php /var/www/lighttpd/foo.php
+	 mkdir /var/www/localhost
+	 cp /etc/php.ini /var/www/localhost
+	sed -i "s:;cgi.fix_pathinfo:cgi.fix_pathinfo:" /var/www/localhost/php.ini
+	sed -i 's:#include "conf.d/fastcgi.conf:include "conf.d/fastcgi.conf:' /etc/lighttpd/modules.conf
+
+	systemctl enable lighttpd; systemctl start lighttpd
+
+# SQUID cache setup
+
+
+	sed -i "s:\#cache_dir ufs /var/spool/squid 100 16 256:cache_dir ufs /var/spool/squid 100000 16 256:" /etc/squid/squid.conf	 
+	echo "maximum_object_size 40 GB" >> /etc/squid/squid.conf
+echo "acl localnet src 192.7.0.0/16   # RFC1918 possible internal network" >> /etc/squid/squid.conf
+
+	echo "icp_port 3130" >> /etc/squid/squid.conf
+	echo "icp_access allow localnet" >> /etc/squid/squid.conf 
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+	then
+		echo "cache_peer 192.7.7.4 parent 3128 3130 default" >> /etc/squid/squid.conf
+	fi
+
+
+##### nmcli general hostname apollo.load
+
+
+	squid -z
+	sleep 5; systemctl enable squid; systemctl start squid
+
+# Configure Kickstart file for remote booting
+
+	cp /usr/local/src/ipxe/ipxehttpproxy/ks.cfg /var/www/lighttpd/ks.cfg
+
+ # ipsec (strongswan)
+
+# Hostfile
+
+ 
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+# %DNSmasq
+	     cat /usr/local/src/ipxe/ipxehttpproxy/Olympus/hosts >> /etc/hosts
+	fi
+
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+	then
+	# %jumphost
+	     cat /usr/local/src/ipxe/ipxehttpproxy/Juno/hosts >> /etc/hosts
+	fi
+
+
+# Certificate management
+#  %DNSmasq
+
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+		mkdir -p /home/vagrant/certs
+		cd /home/vagrant/certs
+		# Create X509 certficates for server and jumphost
+		strongswan pki --gen --outform pem > CAKey.key
+		strongswan pki --self --in CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=strongSwan CA" --ca --outform pem > CA.crt
+		strongswan pki --gen --outform pem > hostSunKey.key
+		strongswan pki --gen --outform pem > hostMoonKey.key
+		strongswan pki --issue --in hostSunKey.key --type priv --cacert CA.crt --cakey CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=sun.localdomain, OU=CIT" --san sun.localdomain --outform pem > hostSunCert.crt 
+		strongswan pki --issue --in hostMoonKey.key --type priv --cacert CA.crt --cakey CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=moon.localdomain,OU=CIT" --san moon.localdomain --outform pem > hostMoonCert.crt 
+		cp CA.crt /etc/strongswan/swanctl/x509ca
+		cp host*Cert.crt /etc/strongswan/swanctl/x509
+	fi
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+	then
+		mkdir -p /home/vagrant/certs
+		cd /home/vagrant/certs
+		# Copy over host certs
+	 	rsync -e "ssh -p 59842 -o 'StrictHostKeyChecking no'" vagrant@moon:/home/vagrant/certs/CA.crt vagrant@moon:/home/vagrant/certs/host*Cert.crt vagrant@moon:/home/vagrant/certs/hostSunKey.key  /home/vagrant/certs
+		cp /home/vagrant/certs/CA.crt /etc/strongswan/swanctl/x509ca
+		cp /home/vagrant/certs/host*Cert.crt /etc/strongswan/swanctl/x509
+		cp /home/vagrant/certs/hostSunKey.key /etc/strongswan/swanctl/private
+
+	 	#rsync -e "ssh -p 59842 -o 'StrictHostKeyChecking no'" vagrant@moon:/home/vagrant/certs/CA.crt /etc/strongswan/swanctl/x509ca
+#	 	rsync -e "ssh -p 59842 -o 'StrictHostKeyChecking no'" vagrant@moon:/home/vagrant/certs/host*Cert.crt /etc/strongswan/swanctl/x509
+#	 	rsync -e "ssh -p 59842 -o 'StrictHostKeyChecking no'" vagrant@moon:/home/vagrant/certs/hostSunKey.key /etc/strongswan/swanctl/private
+	fi
+
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+
+	    cp /usr/local/src/ipxe/ipxehttpproxy/Olympus/Olympus.ab.conf /etc/strongswan/swanctl/conf.d
+#	    cp /home/vagrant/certs/hostMoonKey.key /etc/strongswan/swanctl/private
+	fi
+
+# %jumphost
+        if [ $VAGRANT_ROLE == "jumphost" ]
+	then
+	    cp /usr/local/src/ipxe/ipxehttpproxy/Juno/ab.conf /etc/strongswan/swanctl/conf.d/ab.conf
+#	    cp /home/vagrant/certs/hostSunKey.key /etc/strongswan/swanctl/private
+	fi
+
+# %all
+##     cp /vagrant_data/CA.crt /etc/strongswan/swanctl/x509ca
+##     cp /vagrant_data/host*Cert.crt /etc/strongswan/swanctl/x509
+
+
+
+
+     systemctl enable strongswan
+     systemctl start strongswan
+
+
+# VXLAN setup
+# %all
+
+###	 ip link add vxlan0 type vxlan id 21 dev eth2 dstport 8472
+###
+ ###        bridge fdb add 00:00:00:00:00:00 dst $REMOTE_IRISIP dev vxlan0 # dst is remote ip sec IP addr
+###        ip link set up vxlan0
+
+     # openvswitch (IRIS)
+# %all
+
+        systemctl enable openvswitch; systemctl start openvswitch
+
+        echo "export PATH=/usr/local/bin:/usr/share/openvswitch/scripts/:$PATH" >> /etc/bashrc
+        export PATH=/usr/local/bin:/usr/share/openvswitch/scripts/:$PATH
+        hash
+        ovs-ctl start
+
+
+         systemctl enable openvswitch; systemctl start openvswitch
+
+         ovs-vsctl add-br ovs-br1
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+	then
+         	ovs-vsctl add-port ovs-br1 eth1
+	fi
+
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+         	ovs-vsctl add-port ovs-br1 eth2
+	fi
+
+         ovs-vsctl add-port ovs-br1 vxlan0
+
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+	         ifconfig ovs-br1 192.7.7.4/24 ## debugging
+	fi
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+	then
+	         ifconfig ovs-br1 192.7.7.10/24 ## debugging
+	fi
+
+# Firewall rules to allow DHCP and IPsec  
+# %all
+
+###	firewall-cmd --zone=dmz --permanent --add-rich-rule='rule protocol value="esp" accept'
+###     firewall-cmd --zone=dmz --permanent --add-rich-rule='rule protocol value="ah" accept'
+###     firewall-cmd --zone=dmz --permanent --add-port=500/udp
+###     firewall-cmd --zone=dmz --permanent --add-port=4500/udp
+###     firewall-cmd --permanent --add-service="ipsec"
+###    firewall-cmd --permanent --add-port=8472/udp # vxlan port
+###    firewall-cmd --permanent --add-port=8472/udp --zone=dmz # vxlan port
+###     firewall-cmd --permanent --add-service=dhcp # allow L2 DHCP request thru vxlan
+###     firewall-cmd --permanent --add-service=tftp # allow L2 DHCP request thru vxlan
+###     firewall-cmd --list-all --zone=dmz
+### firewall-cmd --add-interface=ovs-br1 --zone=juno --permanent
+### firewall-cmd --add-source=192.7.7.0/24 --zone=juno --permanent
+###firewall-cmd --reload
+
+
+# Turn on strongswan connectivity
+
+###     swanctl --load-all # Will wait from connection from outside.
+###     swanctl -i -c host-host
+
+# Duo
+#	yum -y install openssl-devel pam-devel selinux-policy-devel 
+	cp /vagrant_data/duosecurity.repo /etc/yum.repos.d
+
+###	 rpm --import https://duo.com/DUO-GPG-PUBLIC-KEY.asc
+	#########yum -y install duo_unix
+	cp /vagrant_data/pam_duo.conf /etc/duo/pam_duo.conf
+	sed -i 's/^ChallengeResponseAuthentication no/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config
+	sed -i "s/^#Port 22*$/Port $SSH_PORT/" /etc/ssh/sshd_config
+	cd /etc/pam.d; patch < /vagrant_data/pam-system-auth.patch ; patch < /vagrant_data/pam-d-sshd.patch
+	firewall-cmd --permanent --add-port=$SSH_PORT/tcp --zone=dmz # ssh on alternative port
+	firewall-cmd --permanent --add-port=$SSH_PORT/tcp --zone=public # ssh on alternative port
+	firewall-cmd --reload
+	semanage port -a -t ssh_port_t -p tcp $SSH_PORT
+
+ # Install fail2ban for more protection against offensive
+#    yum -y install virt-manager libvirt-client fail2ban
+    cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+    cp /vagrant_data/jail.local /etc/fail2ban/jail.local
+    systemctl enable fail2ban
+   systemctl start fail2ban
+
+####	nmcli con mod "System eth0" ipv4.dns 192.7.7.10
+## systemctl restart sshd # command to get into VM is " vagrant ssh -- '-p 1234' "
+
+# For physical hardware to prepare to run vagrant
+#  cd /usr/local/src
+#    yum -y install qt SDL qt-devel libXmu opus-devel libvpx-devel
+#   yum -y groupinstall "Virtualization Host"
+#   wget  https://download.virtualbox.org/virtualbox/6.0.14/VirtualBox-6.0-6.0.14_133895_el7-1.x86_64.rpm
+
+#   rpm -i VirtualBox-6.0-6.0.14_133895_el7-1.x86_64.rpm
+
+#   wget https://releases.hashicorp.com/vagrant/2.2.6/vagrant_2.2.6_x86_64.rpm
+
+#   rpm -i vagrant_2.2.6_x86_64.rpm
+
+#   mkdir moon; cd moon
+
+	SHELL
+end
