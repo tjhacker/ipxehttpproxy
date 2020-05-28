@@ -1,0 +1,46 @@
+#!/bin/sh
+# service_publish -m minion_port [-p|-u]
+# Opens access to the minon_port by allowing packets to 
+# flow (ingress) to the minion port with -p (publish) or
+# blocks access (unpublish) with -u (unpublish)
+#
+
+TC_CLASS=clsact
+PUBLISH=-1
+
+# Process options for publish
+while getopts m:uph option
+do
+   case "${option}"
+   in
+   m) MPORT=${OPTARG};;
+   u) PUBLISH=0;;
+   p) PUBLISH=1;;
+   h) echo "Syntax: service_publish -m minion_port [-p|-u]";;
+   esac
+done
+
+if [[ $PUBLISH == 1 ]]; then
+ # open access (publish)
+	tc qdisc delete dev $MPORT $TC_CLASS
+	exit 0
+fi
+
+if [[ $PUBLISH == 0 ]]; then
+ # block access (unpublish)
+	tc qdisc add dev $MPORT $TC_CLASS
+	tc filter add dev $MPORT ingress flower action drop
+	exit 0
+fi
+
+exit 1
+
+tc qdisc show
+
+tc qdisc delete dev vxlan0 clsact
+
+
+tc qdisc add dev vxlan0 root fq_codel
+
+     tc qdisc add dev vxlan0 ingress
+     tc filter add dev vxlan0 parent ffff: matchall skip_hw action drop

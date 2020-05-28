@@ -1,0 +1,14 @@
+
+tc qdisc add dev vxlan0 clsact
+ tc filter add dev vxlan0 ingress flower action drop
+tc qdisc show
+
+exit
+
+tc qdisc delete dev vxlan0 clsact
+
+
+tc qdisc add dev vxlan0 root fq_codel
+
+     tc qdisc add dev vxlan0 ingress
+     tc filter add dev vxlan0 parent ffff: matchall skip_hw action drop

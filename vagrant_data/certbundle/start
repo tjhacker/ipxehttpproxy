@@ -1,0 +1,163 @@
+#!/bin/bash
+# Minion start
+#Purpose: Manage the status of the minion service on the system
+#status is for overall availability of service, not for specific minion ports
+#store status in /var/minion/service
+#minon port X status in /var/minon/ports/X
+
+
+#minionctl start  (start -> I-PR->I-A->I-LC)
+#minionctl status (report value of /var/minion/service and all minion ports)
+#minionctl restart (restore status to I-LC (somehow) )
+#minionctl stop (revert to start state - nothing running)
+export MINION_STATUS=/var/minion/service
+
+mkdir -p `dirname $MINION_STATUS`
+
+test -e {$MINION_STATUS}
+if [[ $? == 1  ]]; then
+ # Not there - intialize with status
+ echo "Start" > $MINION_STATUS
+else
+ echo -n  "Existing minion status: " 
+ cat {$MINION_STATUS}
+fi
+
+# start minion service
+
+#might need to keep state in a file in /var/minion <- probably start here to keep complexity down until I know I need to use systemctl
+
+#use minionctl to start with, can transition to systemctl someday if needed
+
+
+
+
+
+
+# Verify prerequisites (I-PR) for minion ports      
+ # what are prereqs ?
+#  1. necessary packages installed 
+#	strongswan openvswitch libibverbs policycoreutils-python openssl-devel pam-devel selinux-policy-devel duo_unix fail2ban 
+
+
+rpm -q strongswan openvswitch libibverbs policycoreutils-python openssl-devel pam-devel selinux-policy-devel duo_unix fail2ban
+if [[ $? != 0 ]]; then
+  echo "Package(s) missing"
+else
+  echo "Required packages installed."
+fi
+
+
+#  2. necessary services started and running
+#	strongswan openvswitch selinux firewall duo_unix fail2ban
+if [[ `systemctl is-active strongswan openvswitch firewalld fail2ban  | egrep "(inactive|unknown)"` ]]; then
+   echo "Systems not ready"
+else
+   echo "Required systems ready."
+fi
+
+  #3. firewall options configured
+ # How do I check this? - what needs to be checked? critical ports for ipsec and vxlan are ready..
+       firewall-cmd --new-zone=juno --permanent
+    firewall-cmd --reload
+    firewall-cmd --zone=juno --query-port 3130/udp 
+   if [[ $? != 0 ]]; then
+	echo "Firewall not ready."
+	exit
+    fi
+    firewall-cmd --query-masquerade --permanent
+   if [[ $? != 0 ]]; then
+	echo "Firewall not ready."
+	exit
+    fi
+
+    firewall-cmd --zone=dmz --permanent --query-rich-rule='rule protocol value="esp" accept'
+
+   if [[ $? != 0 ]]; then
+	echo "Firewall not ready."
+	exit
+    fi
+     firewall-cmd --zone=dmz --permanent --query-rich-rule='rule protocol value="ah" accept'
+
+   if [[ $? != 0 ]]; then
+	echo "Firewall not ready."
+	exit
+    fi
+     firewall-cmd --zone=dmz --permanent --query-port=500/udp
+
+   if [[ $? != 0 ]]; then
+	echo "Firewall not ready."
+	exit
+    fi
+     firewall-cmd --zone=dmz --permanent --query-port=4500/udp
+
+   if [[ $? != 0 ]]; then
+	echo "Firewall not ready."
+	exit
+    fi
+     firewall-cmd --permanent --query-service="ipsec"
+
+   if [[ $? != 0 ]]; then
+	echo "Firewall not ready."
+	exit
+    fi
+    firewall-cmd --permanent --query-port=8472/udp # vxlan port
+
+   if [[ $? != 0 ]]; then
+	echo "Firewall not ready."
+	exit
+    fi
+    firewall-cmd --permanent --query-port=8472/udp --zone=dmz # vxlan port
+
+   if [[ $? != 0 ]]; then
+	echo "Firewall not ready."
+	exit
+    fi
+ firewall-cmd --query-interface=ovs-br1 --zone=juno --permanent
+
+   if [[ $? != 0 ]]; then
+	echo "Firewall not ready."
+	exit
+    fi
+ firewall-cmd --query-source=192.7.7.0/24 --zone=juno --permanent
+
+   if [[ $? != 0 ]]; then
+	echo "Firewall not ready."
+	exit
+    fi
+
+ echo "I-PR Prequiresites Verified" > $MINION_STATUS
+
+# Check availability of IPsec peer server (unencrypted IP address)
+ping -c 1 -w 4 moon
+if [[ $? != 0 ]]; then
+   echo "IPsec target unreachable."
+else
+ echo "I-A Peer Available" > $MINION_STATUS
+fi
+
+
+# Load strongswan configuration
+swanctl --load-all      
+if [[ $? == 0 ]]; then
+ echo "I-LC Configuration Loaded" > $MINION_STATUS
+fi
+
+
+# Establish IPsec tunnel
+# Check if we are in the correct state to create the IPsec link
+cat $MINION_STATUS | grep "I-LC"
+if [[ $? != 0  ]]; then
+ echo "System not ready to create minion port."
+ exit
+fi
+
+ echo "I-CA IPsec Connection Attempt" > $MINION_STATUS
+# How to Get to I-TC?
+swanctl -i -c host-host
+if [[ $? != 0  ]]; then
+ echo "Attempt to create IPsec tunnel failed."
+ exit
+fi
+
+echo "I-TO IPsec Tunnel Open" > $MINION_STATUS

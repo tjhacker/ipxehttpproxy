@@ -1,0 +1,14 @@
+#!/usr/sbin/nft -f
+
+table bridge filter {
+	chain input		{ type filter hook input priority -200;
+				iifname vxlan0 counter
+				oifname vxlan0 counter
+				 }
+	chain forward		{ type filter hook forward priority -200; 
+				counter
+				}
+	chain output		{ type filter hook output priority 200; 
+				counter
+				}
+}

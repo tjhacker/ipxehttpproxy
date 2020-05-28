@@ -1,0 +1,28 @@
+#!/usr/sbin/nft -f
+
+# mind the NIC, it must exists
+
+table netdev filter {
+
+#        chain minion { 
+#ether saddr 4a:b1:76:9e:5c:ee; log; accept;
+#ether daddr 4a:b1:76:9e:5c:ee; log; accept;
+#	}
+        chain brfilter {
+	type filter hook ingress device eth0 priority 0 ;
+	counter
+#	iifname vxlan0 log
+#	ether saddr 4a:b1:76:9e:5c:ee log
+#ether ;  policy accept; 
+## type ether daddr 4a:b1:76:9e:5c:ee log; drop;
+
+# ether saddr 08:00:27:36:95:25 log; accept;
+#ether daddr 08:00:27:36:95:25 log; accept;
+
+}
+
+}
+
+
+#        chain brfilter { type filter hook ingress device eth1 priority 0; log; policy drop; counter; }
+

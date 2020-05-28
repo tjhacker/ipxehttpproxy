@@ -1,0 +1,71 @@
+#!/bin/bash
+# Minion_status
+# Purpose: return the vxlan minion state for overall system and all ports.
+
+
+# Syntax: minion_status
+
+# Create minion port name PORT with VXlan ID N
+OPTERR=1
+MPORT=""
+MPORT_ID=""
+IPSEC_ADAPTER=""
+REMOTE_IPSEC_ADDR=""
+
+export MPORT=vxlan0
+export MPORT_ID=21
+export IPSEC_ADAPTER=eth2 
+export REMOTE_IPSEC_ADDR=192.100.88.10
+
+export VAGRANT_ROLE="spoke"  
+
+export REMOTE_IRISIP=$REMOTE_IPSEC_ADDR
+
+export LOCALIP=192.7.7.4
+
+
+# Process options for create operation
+while getopts m:i:a:v:r:h option
+do
+   case "${option}" 
+   in
+   m) MPORT=${OPTARG};;
+   a) REMOTE_IPSEC_ADDR=${OPTARG};;
+   h) echo "Syntax: delete -m minion-port-name"
+   esac
+done
+if [[ $MPORT == "" ]]; then
+  echo Minion port name missing.
+  exit 1
+fi
+
+if [[ $REMOTE_IPSEC_ADDR == "" ]]; then
+  echo Remote IP address of IPsec tunnel missing.
+  exit 1
+fi
+
+#export MPORT=vxlan0
+#export MPORT_ID=21
+#export IPSEC_ADAPTER=eth2 
+#export REMOTE_IPSEC_ADDR=192.100.88.10
+#export VAGRANT_ROLE="spoke"  
+
+export MINION_STATUS=/var/minion/service
+
+test -e $MINION_STATUS
+if [[ $? == 1  ]]; then
+ # Not there - exit with error
+ echo "Cannot report status with no state information present."
+ exit 1
+else
+ echo -n  "Existing minion status: " 
+ cat $MINION_STATUS
+fi
+
+# Verify that minion status is V-*
+
+export PORT_STATUS=`dirname $MINION_STATUS`/ports/$MPORT
+# Check minions state to delete minion port
+echo -n "Port status of "  $PORT_STATUS ":"
+cat $PORT_STATUS 
+exit 0
