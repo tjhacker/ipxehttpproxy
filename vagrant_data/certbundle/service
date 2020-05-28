@@ -1,0 +1,94 @@
+#VAGRANT_ROLE = "dnsmasq"
+VAGRANT_ROLE = "jumphost"
+#SSH_PORT = 59842
+SSH_PORT = 22
+
+#LOCALIP = "192.7.7.4"
+LOCALIP = "192.7.7.10"
+
+###yum -y install dnsmasq dnsmasq-utils tftp-server tftp syslinux-tftpboot ipxe-bootimgs git xz-devel genisoimage squid lighttpd php mod_fcgid lighttpd-fastcgi mod_fastcgi 
+
+	cd /usr/local/src; git clone git://github.com/ipxe/ipxe.git; cd ipxe; git clone https://github.com/tjhacker/ipxehttpproxy.git
+
+	firewall-cmd --new-zone=juno --permanent
+	firewall-cmd --reload
+	firewall-cmd --zone=juno --add-service dhcp --permanent
+	firewall-cmd --zone=juno --add-service tftp --permanent
+	firewall-cmd --zone=juno --add-service dns --permanent
+	firewall-cmd --zone=juno --add-service squid --permanent
+	firewall-cmd --zone=juno --add-port 3130/udp --permanent
+	firewall-cmd --add-masquerade --permanent
+
+     firewall-cmd --permanent --add-service=dhcp # allow L2 DHCP request thru vxlan
+     firewall-cmd --permanent --add-service=tftp # allow L2 DHCP request thru vxlan
+ firewall-cmd --add-interface=ovs-br1 --zone=juno --permanent
+ firewall-cmd --add-source=192.7.7.0/24 --zone=juno --permanent
+firewall-cmd --reload
+	firewall-cmd --reload
+exit
+# HTTP server setup
+	sed -i 's/server.use-ipv6 = "enable"/server.use-ipv6 = "disable"/' /etc/lighttpd/lighttpd.conf
+	# Add fastCGI conf to lighttpd 
+	cat /usr/local/src/ipxe/ipxehttpproxy/fastcgi.conf_addition >> /etc/lighttpd/conf.d/fastcgi.conf
+	cp /usr/local/src/ipxe/ipxehttpproxy/foo.php /var/www/lighttpd/foo.php
+	 mkdir /var/www/localhost
+	 cp /etc/php.ini /var/www/localhost
+	sed -i "s:;cgi.fix_pathinfo:cgi.fix_pathinfo:" /var/www/localhost/php.ini
+	sed -i 's:#include "conf.d/fastcgi.conf:include "conf.d/fastcgi.conf:' /etc/lighttpd/modules.conf
+
+	systemctl enable lighttpd; systemctl start lighttpd
+
+# SQUID cache setup
+
+	sed -i "s:\#cache_dir ufs /var/spool/squid 100 16 256:cache_dir ufs /var/spool/squid 100000 16 256:" /etc/squid/squid.conf	 
+	echo "maximum_object_size 40 GB" >> /etc/squid/squid.conf
+echo "acl localnet src 192.7.0.0/16   # RFC1918 possible internal network" >> /etc/squid/squid.conf
+
+	echo "icp_port 3130" >> /etc/squid/squid.conf
+	echo "icp_access allow localnet" >> /etc/squid/squid.conf 
+
+	squid -z
+	sleep 5; systemctl enable squid; systemctl start squid
+
+# Configure Kickstart file for remote booting
+
+	cp /usr/local/src/ipxe/ipxehttpproxy/ks.cfg /var/www/lighttpd/ks.cfg
+
+# Stage 2 - set up iPXE on DNSmasq server
+# %DNSmasq server role
+	
+
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+		# create patched ipxe with HTTP proxy support
+		cd /usr/local/src/ipxe
+		patch -p1 < ipxehttpproxy/proxypatch.p
+		cp ipxehttpproxy/embedded.pxe src/embedded.pxe
+		cd src
+	
+		make EMBED=embedded.pxe -j 4
+
+		cp /usr/local/src/ipxe/src/bin/undionly.kpxe /var/lib/tftpboot
+	fi
+
+
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+        then # jumphost was masking DNS that refers requests to main server
+                dnsmasq --interface=ovs-br1 --address=/juno.load/$LOCALIP --server=$DNS
+        fi
+
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+		dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=ovs-br1 --dhcp-range=192.7.7.30,192.7.7.35,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/juno.load/$DNS --server=8.8.4.4 --dhcp-option=6,$LOCALIP
+
+	fi
+
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+	then
+		echo "cache_peer 192.7.7.4 parent 3128 3130 default" >> /etc/squid/squid.conf
+	fi
+
+
+#### SWITCH TO MINION SCRIPTS AT THIS POINT

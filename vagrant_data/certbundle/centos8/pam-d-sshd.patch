@@ -1,0 +1,12 @@
+--- sshd.orig	2020-05-08 15:21:03.876648941 +0000
++++ sshd	2020-05-08 15:21:58.857708906 +0000
+@@ -1,5 +1,8 @@
+ #%PAM-1.0
+-auth       substack     password-auth
++#auth       substack     password-auth
++auth  required pam_env.so
++auth  sufficient pam_duo.so
++auth  required pam_deny.so
+ auth       include      postlogin
+ account    required     pam_sepermit.so
+ account    required     pam_nologin.so
