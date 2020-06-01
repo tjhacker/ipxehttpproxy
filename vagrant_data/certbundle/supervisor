@@ -1,0 +1,6 @@
+[program:etherate]
+command=/usr/local/bin/etherate -r -i vxlan0
+numprocs=1
+directory=/home/vagrant
+startretries=100
+user=root
