@@ -1,0 +1,286 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# Need Vagrant level variable
+# 1. String identifying host interface for Vagrant to create bridge to
+BRIDGE_INTERFACE = "Intel(R) Dual Band Wireless-AC 8260"
+#BRIDGE_INTERFACE = "enp8s0f0"
+# 2. Local non routable IPsec protected IP address - should be e.g. 192.0.0.0/8
+LOCAL_IRISIP = "192.100.42.20"
+# 3. Remote non routable IPsec protected IP address 
+REMOTE_IRISIP = "192.100.88.10"
+
+# 4. Role expected from the VM brought up by the Vagrantfile
+# Currently have:  %all, %jumphost, %dnsmasq
+#VAGRANT_ROLE = "dnsmasq"
+VAGRANT_ROLE = "jumphost"
+# 5. Minion ethernet broadcast domain address space
+LOCAL_CIDR = "192.7.7.0/24"
+# 6. ssh port that is not 22
+#SSH_PORT = 59842
+SSH_PORT=22
+
+# Need to generate:
+# 1. /etc/hosts
+# 2. strongswan connection file
+#  
+# Need to configure:
+# 1. VM external IP addresses
+# 2. VM hostname
+# 3. strongswan files (x509 certs, config, and connection)
+# 4. VXLAN parameters
+# 5. 
+#
+
+#LOCALIP = "192.7.7.4"
+LOCALIP = "192.7.7.10"
+DNS = "192.7.7.4"
+
+
+
+# All Vagrant configuration is done below. The "2" in Vagrant.configure
+# configures the configuration version (we support older styles for
+# backwards compatibility). Please don't change it unless you know what
+# you're doing.
+Vagrant.configure("2") do |config|
+  # The most common configuration options are documented and commented below.
+  # For a complete reference, please see the online documentation at
+  # https://docs.vagrantup.com.
+
+  # Every Vagrant development environment requires a box. You can search for
+  # boxes at https://vagrantcloud.com/search.
+
+  config.vm.box = "generic/centos8"
+
+  # Disable automatic box update checking. If you disable this, then
+  # boxes will only be checked for updates when the user runs
+  # `vagrant box outdated`. This is not recommended.
+  # config.vm.box_check_update = false
+
+  # Create a forwarded port mapping which allows access to a specific port
+  # within the machine from a port on the host machine. In the example below,
+  # accessing "localhost:8080" will access port 80 on the guest machine.
+  # NOTE: This will enable public access to the opened port
+  # config.vm.network "forwarded_port", guest: 80, host: 8080
+## For hub  ...  config.vm.network "forwarded_port", guest: 59842, host: 1234
+
+  # Create a forwarded port mapping which allows access to a specific port
+  # within the machine from a port on the host machine and only allow access
+  # via 127.0.0.1 to disable public access
+  # config.vm.network "forwarded_port", guest: 80, host: 8080, host_ip: "127.0.0.1"
+
+  # Create a private network, which allows host-only access to the machine
+  # using a specific IP.
+
+   config.vm.network "private_network", ip: "192.7.7.100", virtualbox__intnet: "pxe test"
+##config.vm.network "public_network", bridge: "Intel(R) Ethernet Connection (2) I219-LM"
+
+#   config.vm.network "private_network", ip: LOCALIP, virtualbox__intnet: "pxe test 2"
+  config.vm.network "public_network", bridge: BRIDGE_INTERFACE
+  config.vm.network "private_network", ip: LOCAL_IRISIP, virtualbox__intnet: "irisnet"
+
+ # This is for the jumphost
+  config.vm.provider "virtualbox" do |vb|
+        vb.customize ["modifyvm", :id, "--nicpromisc1", "allow-all"]
+        vb.customize ["modifyvm", :id, "--nicpromisc2", "allow-all"]
+        vb.customize ["modifyvm", :id, "--nicpromisc3", "allow-all"]
+   end
+
+  # Create a public network, which generally matched to bridged network.
+  # Bridged networks make the machine appear as another physical device on
+  # your network.
+  # config.vm.network "public_network"
+
+
+  # Share an additional folder to the guest VM. The first argument is
+  # the path on the host to the actual folder. The second argument is
+  # the path on the guest to mount the folder. And the optional third
+  # argument is a set of non-required options.
+  # config.vm.synced_folder "../data", "/vagrant_data"
+
+  # Provider-specific configuration so you can fine-tune various
+  # backing providers for Vagrant. These expose provider-specific options.
+  # Example for VirtualBox:
+  #
+  # config.vm.provider "virtualbox" do |vb|
+  #   # Display the VirtualBox GUI when booting the machine
+  #   vb.gui = true
+  #
+  #   # Customize the amount of memory on the VM:
+  #   vb.memory = "1024"
+  # end
+  #
+  # View the documentation for the provider you are using for more
+  # information on available options.
+
+  # Enable provisioning with a shell script. Additional provisioners such as
+  # Puppet, Chef, Ansible, Salt, and Docker are also available. Please see the
+  # documentation for more information about their specific syntax and use.
+
+ # Hacker - this is for creating the jumphost we need to boostrap a private cloud
+
+
+
+# Bring files from vagrant into VM
+
+   config.vm.synced_folder "./certbundle", "/vagrant_data"
+
+# Run shell configuration commands for each VM  
+
+
+   config.vm.provision "shell", inline: <<-SHELL, env:{"VAGRANT_ROLE" => VAGRANT_ROLE, "REMOTE_IRISIP"=>REMOTE_IRISIP, "LOCAL_IRISIP"=>LOCAL_IRISIP, "SSH_PORT"=>SSH_PORT, "LOCALIP"=>LOCALIP, "DNS"=>DNS }
+
+#   config.vm.provision "shell", inline: <<-SHELL
+
+
+# VAGRANT_ROLE imported from Vagrantfile
+export VAGRANT_ROLE=$VAGRANT_ROLE
+export LOCAL_IRISIP=$LOCAL_IRISIP
+export REMOTE_IRISIP=$REMOTE_IRISIP
+export SSH_PORT=$SSH_PORT
+echo "ABC"
+echo "Role is" $VAGRANT_ROLE
+echo "LOCAL IRISIP is" $LOCAL_IRISIP
+echo "REMOTE IRISIP is" $REMOTE_IRISIP
+
+
+
+
+# State 0 - bind variables and select role varaible
+# %All roles
+	
+
+
+# Need vars: 
+
+# Need variables bound for:
+# Internal host interface to which virtualbox can bridge
+
+# 1. External peer reachable hostname and IP address for IPsec
+# 2. connection 'host-host' name(s) for IPsec connection file
+# 3. VXLAN adpater name (minion port name)
+# 4. OpenVSwitch bridge name
+# 5. local interface (connected to external network) name for firewall rules
+export LOCAL_INTERFACE="eth0"
+# 6. x509 certificate file names
+# 7. 
+
+
+# Stage 1 - run OS updates and package installations
+# %All roles
+
+
+	yum -y update
+	yum -y install git
+####	yum -y install dnsmasq dnsmasq-utils tftp-server tftp syslinux-tftpboot ipxe-bootimgs git xz-devel genisoimage squid lighttpd php mod_fcgid lighttpd-fastcgi mod_fastcgi 
+yum -y install git strongswan virt-manager libvirt-client fail2ban openssl-devel pam-devel selinux-policy-devel python supervisor policycoreutils
+# Centos7 yum policycoreutils-python
+
+
+ # Install fail2ban for more protection against offensive
+    yum -y install virt-manager libvirt-client fail2ban
+    cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+    cp /vagrant_data/jail.local /etc/fail2ban/jail.local
+    systemctl enable fail2ban
+   systemctl start fail2ban
+
+	cd /usr/local/src; git clone git://github.com/ipxe/ipxe.git; cd ipxe; git clone https://github.com/tjhacker/ipxehttpproxy.git
+       rpm --import https://duo.com/DUO-GPG-PUBLIC-KEY.asc
+       cp /vagrant_data/duosecurity.repo /etc/yum.repos.d
+       yum -y install duo_unix
+
+
+        cd /usr/local/src
+        wget https://rdoproject.org/repos/rdo-release.rpm
+        rpm -i rdo-release.rpm
+        yum -y install openvswitch libibverbs
+
+# Moving common here...
+
+
+# Get Etherate to check minion ports
+##    timeout -s INT 120 ./etherate -i vxlan0 -Q 1000 1000 -t 5
+      cd /usr/local/src
+      git clone https://github.com/jwbensley/Etherate.git
+      cd Etherate
+      ./configure.sh
+      make install
+
+# Stage 3 - set up network security rules
+# %All roles    
+
+
+        if [ $VAGRANT_ROLE == "jumphost" ]
+	then
+	  	firewall-cmd --add-interface=eth0 --zone=dmz --permanent
+	       	firewall-cmd --add-service=ssh --zone=dmz --permanent # to be able to ssh into the system from vagrant
+	fi
+
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+
+                yum -y install policycoreutils-python
+		semanage fcontext -a -t net_conf_t /etc/sysconfig/network-scripts/ifcfg-eth1 # Fix selinux problem
+		restorecon -R /etc/sysconfig/network-scripts/ifcfg-eth1
+		systemctl restart firewalld.service
+		firewall-cmd --add-interface=eth1 --zone=dmz --permanent
+	fi
+
+	systemctl stop NetworkManager
+	firewall-cmd --reload
+	systemctl start NetworkManager
+
+
+ if [ $VAGRANT_ROLE == "jumphost" ] 	
+ then
+	nmcli con mod "System eth0" ipv4.dns $LOCALIP
+      nmcli con mod "System eth0" ipv4.ignore-auto-dns yes
+	 nmcli con up "System eth0"
+	nmcli general hostname apollo.load
+
+ fi
+
+
+# % DNSMasq server
+        if [ $VAGRANT_ROLE == "dnsmasq" ]
+	then
+	
+	HostDNS=`fgrep -m 1 nameserver /etc/resolv.conf | sed 's/nameserver //'`
+	sed -i "s/$HostDNS/$DNS/" /etc/resolv.conf
+	echo "nameserver $DNS" >> /etc/resolv.conf
+         chattr +i /etc/resolv.conf # Lock the file to prevent changes.
+
+
+		# Network routing rules and DNS
+		
+	
+		ip addr add 10.210.210.41/24 dev eth1
+		ip route delete default
+		ip route add default via 10.210.210.1 dev eth1
+	fi
+
+
+	cp /vagrant_data/duosecurity.repo /etc/yum.repos.d
+
+	cp /vagrant_data/pam_duo.conf /etc/duo/pam_duo.conf
+	sed -i 's/^ChallengeResponseAuthentication no/ChallengeResponseAuthentication yes/' /etc/ssh/sshd_config
+	sed -i "s/^#Port 22*$/Port $SSH_PORT/" /etc/ssh/sshd_config
+	cd  /etc/authselect; patch < /vagrant_data/centos8/pam-system-auth.patch 
+	cd /etc/pam.d ; patch < /vagrant_data/centos8/pam-d-sshd.patch
+	firewall-cmd --permanent --add-port=$SSH_PORT/tcp --zone=dmz # ssh on alternative port
+	firewall-cmd --permanent --add-port=$SSH_PORT/tcp --zone=public # ssh on alternative port
+
+	systemctl stop NetworkManager
+	firewall-cmd --reload
+	systemctl start NetworkManager
+
+	semanage port -a -t ssh_port_t -p tcp $SSH_PORT
+
+ systemctl restart sshd # command to get into VM is " vagrant ssh -- '-p 1234' "
+
+cd /vagrant_data
+echo "REMOTE_IRISIP" $REMOTE_IRISIP
+echo "LOCAL IP" $LOCALIP
+
+	SHELL
+end
