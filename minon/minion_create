@@ -6,7 +6,7 @@
 # minion status stored in /var/minion/service
 #minon port X status in /var/minon/ports/X
 
-# Syntax: minion_create -m minion-port-name -i ipsec-adapter-name -a remote-ipsec-address -v VXLAN-id
+# Syntax: minion_create -m minion-port-name -i ipsec-adapter-name -a remote-ipsec-address -n ipsec-connection-name -v VXLAN-id
 # Create minion port name PORT with VXlan ID N
 #####
 # Probably need a wrapper for this...
@@ -35,17 +35,20 @@ export VAGRANT_ROLE="spoke"
 #export LOCALIP=192.7.7.4
 export LOCALIP=192.7.7.10
 
+export IPSEC_CONN_NAME=""
+
 # Process options for create operation
-while getopts m:i:a:v:r:h option
+while getopts m:i:a:n:v:r:h option
 do
    case "${option}" 
    in
    m) MPORT=${OPTARG};;
    i) IPSEC_ADAPTER=${OPTARG};;
    a) REMOTE_IPSEC_ADDR=${OPTARG};;
+   n) IPSEC_CONN_NAME=${OPTARG};;
    v) MPORT_ID=${OPTARG};;
    r) VAGRANT_ROLE=${OPTARG};;
-   h) echo "Syntax: create -m minion-port-name -i ipsec-adapter-name -a remote-ipsec-address -v VXLAN-id -r <hub|spoke>"
+   h) echo "Syntax: create -m minion-port-name -i ipsec-adapter-name -a remote-ipsec-address -n ipsec-connection-name -v VXLAN-id -r <hub|spoke>"
    esac
 done
 if [[ $MPORT == "" ]]; then
@@ -65,6 +68,11 @@ fi
 
 if [[ $REMOTE_IPSEC_ADDR == "" ]]; then
   echo Remote IP address of IPsec tunnel missing.
+  exit 1
+fi
+
+if [[ $IPSEC_CONN_NAME == "" ]]; then
+  echo IPSEC connection name missing.
   exit 1
 fi
 
@@ -219,11 +227,19 @@ fi
 # Setup and start ipsec (strongswan)
 
 # if IPsec tunnel is already up, we can move to the next stage.
-test -e '/etc/strongswan/swanctl/conf.d/*.conf'
+test -e /etc/strongswan/swanctl/conf.d/*.conf
 export testswandir=$?
 
 
-if [[ $testswandir != 0 ]]; then
+strongswan status $IPSEC_CONN_NAME | grep ESTABLISHED
+if [ $? != 0 ]; then
+	export test_ipsec_conn=0;
+else
+	export test_ipsec_conn=1;
+fi
+
+
+if [ $testswandir != 0 ]; then
 
 	# 3.1 Certificate management
 
@@ -256,10 +272,10 @@ if [[ $testswandir != 0 ]]; then
 		  fi 
 
 	fi
-
+fi
 
 # 3.2. Create custom strongswan configuration file depending on role.
-
+if [ $test_ipsec_conn == 0 ]; then # No active connection - establish ipsec tunnel
         if [ $VAGRANT_ROLE == "hub" ]
 	then
            # strongswan configuration file for hub
@@ -280,8 +296,6 @@ if [[ $testswandir != 0 ]]; then
 
      systemctl enable strongswan-starter.service
      systemctl start strongswan-starter.service
-fi
-
 
 # Turn on strongswan connectivity
 
@@ -290,6 +304,8 @@ fi
 	echo "swanctl --load-all failed."
 	exit 1
   fi 
+fi
+
 
  echo "I-LC Configuration Loaded" > $MINION_STATUS
 
@@ -395,7 +411,7 @@ echo "V-C VXLan Port Created" > $MINION_STATUS
 		exit 1
 	fi
 
-	ifconfig ovs-br1 $LOCALIP/24
+##	ifconfig ovs-br1 $LOCALIP/24
 
 # Use supervisor on hub to keep ethereal test point active
 
