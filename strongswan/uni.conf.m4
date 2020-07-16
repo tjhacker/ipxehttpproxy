@@ -20,7 +20,8 @@ ab {
    host-host {
 
     ifdef(`__LOCALIP_TS', local_ts = __LOCALIP_TS)
-    ifdef(`__REMOTEIP_TS', remote_ts = __REMOTEIP_TS)
+    ##ifdef(`__REMOTEIP_TS', remote_ts = __REMOTEIP_TS)
+    remote_ts = __REMOTEIP_TS
     rekey_time = 5400
     esp_proposals = aes128gcm128-x25519
   }
