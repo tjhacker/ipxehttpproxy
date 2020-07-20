@@ -3,8 +3,9 @@
 
 127.0.0.1 centos7.localdomain
 
-192.100.42.20 sun.localdomain sun
+192.100.42.20 earth.localdomain earth
 192.100.44.21 venus.localdomain venus
-MOON_IPADDR  moon.localdomain moon
+192.100.46.22 mars.localdomain mars
+SUN_IPADDR  sun.localdomain sun
 192.100.88.10 olympus.localdomain olympus
 
