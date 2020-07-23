@@ -292,6 +292,7 @@ strongswan pki --issue --in hostMarsKey.key --type priv --cacert CA.crt --cakey 
 ####			strongswan pki --issue --in hostMoonKey.key --type priv --cacert CA.crt --cakey CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=moon.localdomain,OU=CIT" --san moon.localdomain --outform pem    > hostMoonCert.crt 
 		fi
 	 fi
+fi
 
         if [ $VAGRANT_ROLE == "spoke" ]
 	then	
@@ -318,7 +319,7 @@ strongswan pki --issue --in hostMarsKey.key --type priv --cacert CA.crt --cakey 
 		  fi 
 
 	fi
-fi
+
 
 # 3.2. Create custom strongswan configuration file depending on role.
 if [ $test_ipsec_conn == 0 ]; then # No active connection - establish ipsec tunnel
