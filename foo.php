@@ -22,8 +22,21 @@ echo "initrd http://ftp.ussg.iu.edu/linux/centos/7/os/x86_64/images/pxeboot/init
 echo "boot\n";
 
 echo ":truenas\n";
-echo "set root-path nfs://192.7.7.4/truenas\n";
+$post_cmd = "imgfetch http://juno.load/dhcp_opt.php?selection=\${target}\n";
+echo $post_cmd;
+echo "imgfree dhcp_opt.php\n";
+echo "dhcp\n";
+echo "sleep 4\n";
 echo "chain nfs://192.7.7.4/truenas/boot/pxeboot\n";
+
+
+echo ":freenas\n";
+$post_cmd = "imgfetch http://juno.load/dhcp_opt.php?selection=\${target}\n";
+echo $post_cmd;
+echo "imgfree dhcp_opt.php\n";
+echo "dhcp\n";
+echo "sleep 4\n";
+echo "chain nfs://192.7.7.4/freenas/boot/pxeboot\n";
 
 ?>
        
