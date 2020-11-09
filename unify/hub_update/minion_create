@@ -1,0 +1,524 @@
+#!/bin/bash
+# Minion_create 
+# Purpose: Create a minion port on the system
+#  status is for overall availability of service, 
+#   not for specific minion service ports
+# minion status stored in /var/minion/service
+#minon port X status in /var/minon/ports/X
+
+# Syntax: minion_create -m minion-port-name -i ipsec-adapter-name -a remote-ipsec-address -n ipsec-connection-name -v VXLAN-id -r <hub|spoke> -s <spoke name from Venus, Mars, Earth>
+# Create minion port name PORT with VXlan ID N
+#####
+# Probably need a wrapper for this...
+#minionctl start  (start -> I-PR->I-A->I-LC)
+#minionctl status (report value of /var/minion/service and all minion ports)
+#minionctl restart (restore status to I-LC (somehow) )
+#minionctl stop (revert to start state - nothing running)
+
+# Create minion port name PORT with VXlan ID N
+OPTERR=1
+MPORT=""
+MPORT_ID=""
+IPSEC_ADAPTER=""
+REMOTE_IPSEC_ADDR=""
+
+#export MPORT=vxlan0
+#export MPORT_ID=21
+#export IPSEC_ADAPTER=eth2 
+#export IPSEC_ADAPTER=eth3
+#export REMOTE_IPSEC_ADDR=192.100.88.10
+#export REMOTE_IPSEC_ADDR=192.100.42.20
+
+export VAGRANT_ROLE="spoke"
+#export VAGRANT_ROLE="hub"  
+
+export SPOKE_NAME=""
+export HUB_NAME="sun"
+
+#export LOCALIP=192.7.7.4
+export LOCALIP=192.7.7.10
+BRIDGE=ovs-br1
+
+export IPSEC_CONN_NAME=""
+
+# Process options for create operation
+while getopts m:b:i:a:n:v:r:s:h option
+do
+   case "${option}" 
+   in
+   m) MPORT=${OPTARG};;
+   i) IPSEC_ADAPTER=${OPTARG};;
+   a) REMOTE_IPSEC_ADDR=${OPTARG};;
+   n) IPSEC_CONN_NAME=${OPTARG};;
+   v) MPORT_ID=${OPTARG};;
+   r) VAGRANT_ROLE=${OPTARG};;
+   s) SPOKE_NAME=${OPTARG};;
+   h) echo "Syntax: create -m minion-port-name -i ipsec-adapter-name -a remote-ipsec-address -n ipsec-connection-name -v VXLAN-id -r <hub|spoke> -s <spoke name from Venus, Mars, Earth>"
+   esac
+done
+if [ -z $MPORT ]; then
+  echo Minion port name missing.
+  exit 1
+fi
+
+if [ -z $MPORT_ID  ]; then
+  echo VXLAN id missing.
+  exit 1
+fi
+
+if [ -z $IPSEC_ADAPTER ]; then
+  echo IPsec adapter name missing.
+  exit 1
+fi
+
+if [ -z $REMOTE_IPSEC_ADDR ]; then
+  echo Remote IP address of IPsec tunnel missing.
+  exit 1
+fi
+
+if [ -z $IPSEC_CONN_NAME ]; then
+  echo IPSEC connection name missing.
+  exit 1
+fi
+
+if [ -z $VAGRANT_ROLE ]; then
+  echo "Vagrant role (hub or spoke) missing."
+  exit 1
+fi
+
+if [[ $VAGRANT_ROLE == "spoke" ]]; then
+	if [ -z $SPOKE_NAME ]; then
+		echo "Spoke name (one of Earth, Mars, or Venus) is missing."
+		exit 1
+	fi
+fi
+
+   
+#export MPORT=vxlan0
+#export MPORT_ID=21
+#export IPSEC_ADAPTER=eth2 
+#export REMOTE_IPSEC_ADDR=192.100.88.10
+#export VAGRANT_ROLE="spoke"  
+
+export MINION_STATE_DIR=/var/minion
+
+
+mkdir -p `dirname $MINION_STATE_DIR`
+export MINION_STATUS=$MINION_STATE_DIR/status
+export PORT_STATUS=$MINION_STATE_DIR/ports/$MPORT
+
+echo "PS" $PORT_STATUS
+mkdir -p `dirname $PORT_STATUS`
+
+test -e $MINION_STATUS
+if [[ $? == 1  ]]; then
+ # Not there - intialize with status
+ echo "Start" > $MINION_STATUS
+ echo "Start" > $PORT_STATUS
+else
+ echo -n  "Existing minion status: " 
+ cat $MINION_STATUS
+fi
+
+#minon port X status in /var/minon/ports/X
+
+
+# If minion port is already up, just return.
+if [[ `cat $PORT_STATUS | grep "V-Up"` ]]; then
+	echo "Minion port already up."
+	exit 0
+fi
+
+# start minion service
+
+# Keep state in a file in /var/minion <- probably start here to keep complexity down until I know I need to use systemctl
+
+#use minionctl to start with, can transition to systemctl someday if needed
+
+
+# Verify prerequisites (I-PR) for minion ports      
+# what are prereqs ?
+#  1. necessary packages installed 
+#	strongswan openvswitch libibverbs policycoreutils-python openssl-devel pam-devel selinux-policy-devel duo_unix fail2ban 
+
+
+rpm -q strongswan openvswitch libibverbs policycoreutils-python-utils openssl-devel pam-devel selinux-policy-devel duo_unix fail2ban rsync supervisor git
+
+if [[ $? != 0 ]]; then
+  echo "Package(s) missing. Installing required packages."
+  yum -y install strongswan libibverbs policycoreutils-python-utils openssl-devel pam-devel selinux-policy-devel duo_unix fail2ban nftables rsync supervisor git
+
+ # Need this to get a compiled openvswitch package
+  yum -y install centos-release-openstack-train
+  yum -y install openvswitch
+else
+  echo "Required packages installed."
+fi
+
+
+# 1.0.1 pull in configuration information from git
+cd /home/vagrant; git clone https://github.com/tjhacker/ipxehttpproxy.git
+
+# 1.0.2 Change MACAdressPolicy to allow VXLAN adapters to work with OpenVSwitch
+sed -i 's/^MACAddressPolicy=persistent/MACAddressPolicy=none/' /usr/lib/systemd/network/99-default.link
+if [[ $? != 0 ]]; then
+ echo "Attept to set MACAddressPolicy failed. Exiting."
+ exit 1
+fi
+
+# 1.1 Configure hostfile
+
+    if [ $VAGRANT_ROLE == "hub" ]
+    then
+# %DNSmasq
+       m4 -DSUN_IPADDR="10.210.210.41" /home/vagrant/ipxehttpproxy/strongswan/hosts.m4 > /etc/hosts
+    fi
+
+    if [ $VAGRANT_ROLE == "spoke" ]
+    then
+    # %jumphost
+	cat /home/vagrant/ipxehttpproxy/Juno/hosts >> /etc/hosts
+    fi
+
+
+#  1.2. Ensure necessary services started and running (I-A)
+#	strongswan openvswitch selinux firewall duo_unix fail2ban
+if [[ `systemctl is-active strongswan openvswitch firewalld fail2ban  | egrep "(inactive|unknown)"` ]]; then
+   echo "Systems not ready. Starting necessary systems."
+	systemctl enable strongswan-starter.service; systemctl start strongswan-starter.service
+	systemctl enable openvswitch; systemctl start openvswitch
+	systemctl enable fail2ban; systemctl start fail2ban
+else
+   echo "Required systems ready."
+fi
+
+
+# 1.3. configure and check firewall options 
+# Check that critical ports for ipsec and vxlan are ready.
+
+# Add firewall rules to allow IPsec and VXlan
+
+     firewall-cmd --zone=dmz --permanent --add-rich-rule='rule protocol value="esp" accept'
+     firewall-cmd --zone=dmz --permanent --add-rich-rule='rule protocol value="ah" accept'
+     firewall-cmd --zone=dmz --permanent --add-port=500/udp
+     firewall-cmd --zone=dmz --permanent --add-port=4500/udp
+     firewall-cmd --permanent --add-service="ipsec"
+     firewall-cmd --permanent --add-port=8472/udp # vxlan port
+     firewall-cmd --permanent --add-port=8472/udp --zone=dmz # vxlan port
+
+     firewall-cmd --zone=public --add-rich-rule='rule family=ipv4 source address=192.7.7.0/24 masquerade' --permanent # Allow traffic from the local lan to go through this firewall for NAT access to the outside.
+
+     firewall-cmd --reload
+
+     systemctl start NetworkManager
+
+# 1.4. Prevent auto DNS assignment to system
+
+    if [ $VAGRANT_ROLE == "hub" ]
+    then
+	nmcli con show "System eth0" | grep ipv4.ignore-auto-dns 
+	if [[ $? != 'yes' ]]; then
+	    nmcli con mod "System eth0" ipv4.ignore-auto-dns yes
+	fi
+    fi
+
+
+    
+    if [ $VAGRANT_ROLE == "spoke" ]
+    then
+
+	nmcli con up "System eth0"
+	# Select hostname based on spoke name
+	case $SPOKE_NAME in 
+		"Earth" )
+			export SPOKE_HOSTNAME="earth.load" ;;
+		"Venus" )
+			export SPOKE_HOSTNAME="venus.load" ;;
+		"Mars" )
+			export SPOKE_HOSTNAME="mars.load" ;;
+	esac
+
+
+	nmcli general hostname $SPOKE_HOSTNAME
+    fi
+    
+
+echo "I-PR Prequiresites Verified" > $PORT_STATUS
+
+
+# 2. Check availability of IPsec peer server on network (unencrypted IP address) (I-A)
+ping -c 1 -w 4 sun ### XYZZY
+if [[ $? != 0 ]]; then
+   echo "IPsec target host unreachable. This is required to establish IPsec tunnel."
+else
+ echo "I-A Peer Available" > $PORT_STATUS
+fi
+
+# 3. Configure strongswan and load configuration files
+# Setup and start ipsec (strongswan)
+
+# if IPsec tunnel is already up, we can move to the next stage.
+test -e /etc/strongswan/swanctl/conf.d/*.conf
+export testswandir=$?
+
+
+strongswan status $IPSEC_CONN_NAME | grep ESTABLISHED
+if [ $? != 0 ]; then
+	export test_ipsec_conn=0;
+else
+	export test_ipsec_conn=1;
+fi
+
+
+if [ $testswandir != 0 ]; then
+
+	# 3.1 Certificate management
+
+        if [ $VAGRANT_ROLE == "hub" ]
+	then
+		# If certificates have not been created, then create them.
+		test -e '/home/vagrant/certs/CA.crt'
+		if [ $? != 0 ]; then
+			mkdir -p /home/vagrant/certs
+			cd /home/vagrant/certs
+
+			# Create X509 certficates for server and jumphost
+			strongswan pki --gen --outform pem > CAKey.key
+			strongswan pki --self --in CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=strongSwan CA" --ca --outform pem > CA.crt
+			strongswan pki --gen --outform pem > hostSunKey.key
+			strongswan pki --gen --outform pem > hostVenusKey.key
+			strongswan pki --gen --outform pem > hostMarsKey.key
+			strongswan pki --gen --outform pem > hostEarthKey.key
+####			strongswan pki --gen --outform pem > hostMoonKey.key
+			strongswan pki --issue --in hostSunKey.key --type priv --cacert CA.crt --cakey CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=sun.localdomain, OU=CIT" --san sun.localdomain --outform pem   > hostSunCert.crt 
+			strongswan pki --issue --in hostEarthKey.key --type priv --cacert CA.crt --cakey CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=earth.localdomain, OU=CIT" --san earth.localdomain --outform pem   > hostEarthCert.crt 
+		strongswan pki --issue --in hostVenusKey.key --type priv --cacert CA.crt --cakey CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=venus.localdomain, OU=CIT" --san venus.localdomain --outform pem   > hostVenusCert.crt 	
+strongswan pki --issue --in hostMarsKey.key --type priv --cacert CA.crt --cakey CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=mars.localdomain, OU=CIT" --san mars.localdomain --outform pem   > hostMarsCert.crt 
+####			strongswan pki --issue --in hostMoonKey.key --type priv --cacert CA.crt --cakey CAKey.key --dn "C=US,ST=Indiana,L=West Lafayette,O=Purdue University,emailAddress=tjhacker@purdue.edu,CN=moon.localdomain,OU=CIT" --san moon.localdomain --outform pem    > hostMoonCert.crt 
+		fi
+	 fi
+fi
+
+        if [ $VAGRANT_ROLE == "spoke" ]
+	then	
+		# Keys to be copied over depends on spoke name
+
+		case $SPOKE_NAME in 
+			"Earth" )
+				export HOST_KEY="hostEarthKey.key" ;;
+			"Venus" )
+				export HOST_KEY="hostVenusKey.key" ;;
+			"Mars" )
+				export HOST_KEY="hostMarsKey.key" ;;
+		esac
+			
+		# Copy over necessary X509 certs using DUO 2FA secure remote copy
+		rsync -e "ssh -p 59842 -o 'UserKnownHostsFile /dev/null' -o 'StrictHostKeyChecking no'" vagrant@sun:/home/vagrant/certs/CA.crt vagrant@sun:/home/vagrant/certs/host*Cert.crt vagrant@sun:/home/vagrant/certs/$HOST_KEY  /home/vagrant/certs
+###		rsync -e "ssh -p 59842 -o 'UserKnownHostsFile /dev/null' -o 'StrictHostKeyChecking no'" vagrant@moon:/home/vagrant/certs/CA.crt vagrant@moon:/home/vagrant/certs/host*Cert.crt vagrant@moon:/home/vagrant/certs/hostSunKey.key  /home/vagrant/certs
+###		rsync -e "ssh -p 59842 -o 'UserKnownHostsFile /dev/null' -o 'StrictHostKeyChecking no'" vagrant@moon:/home/vagrant/certs/CA.crt vagrant@moon:/home/vagrant/certs/host*Cert.crt vagrant@moon:/home/vagrant/certs/hostVenusKey.key  /home/vagrant/certs
+###		rsync -e "ssh -p 59842 -o 'UserKnownHostsFile /dev/null' -o 'StrictHostKeyChecking no'" vagrant@moon:/home/vagrant/certs/CA.crt vagrant@moon:/home/vagrant/certs/host*Cert.crt vagrant@moon:/home/vagrant/certs/hostMarsKey.key  /home/vagrant/certs
+
+  		if [[ $? != 0 ]]; then
+			echo "rsync failed."
+			exit 1
+		  fi 
+
+	fi
+
+
+# 3.2. Create custom strongswan configuration file depending on role.
+if [ $test_ipsec_conn == 0 ]; then # No active connection - establish ipsec tunnel
+        if [ $VAGRANT_ROLE == "hub" ]
+	then
+           # strongswan configuration file for hub
+             m4 -D__LOCAL_FQDN="sun.localdomain" -D__LOCAL_CERT="hostSunCert.crt" -D__LOCALIP_TS="192.100.88.0/24" -D__REMOTEIP_TS="192.100.42.0/24,192.100.44.0/24,192.100.46.0/24" /home/vagrant/ipxehttpproxy/strongswan/uni.conf.m4 > /etc/strongswan/swanctl/conf.d/Olympus.ab.conf
+####	    cp /home/vagrant/certs/stSunKey.key /etc/strongswan/swanctl/private
+	fi
+
+        if [ $VAGRANT_ROLE == "spoke" ]
+	then
+            # strongswan configuration file for spoke
+	    # determine local names based on spoke name
+
+		case $SPOKE_NAME in 
+			"Earth" )
+				export LOCAL_FQDN="earth.localdomain"
+			        export LOCAL_CERT="hostEarthCert.crt"
+			        export LOCAL_TS="192.100.42.0/24" ;;
+			"Venus" )
+				export LOCAL_FQDN="venus.localdomain"
+			        export LOCAL_CERT="hostVenusCert.crt" 
+				export LOCAL_TS="192.100.44.0/24" ;;
+			"Mars" )
+				export LOCAL_FQDN="mars.localdomain"
+			        export LOCAL_CERT="hostMarsCert.crt" 
+				export LOCAL_TS="192.100.46.0/24";;
+		esac
+    	    m4 -D__LOCAL_FQDN=$LOCAL_FQDN -D__REMOTE_FQDN="sun.localdomain" -D__LOCAL_CERT=$LOCAL_CERT -D__REMOTE_CERT="hostSunCert.crt" -D__LOCALIP_TS=$LOCAL_TS -D__REMOTEIP_TS="192.100.88.0/24" /home/vagrant/ipxehttpproxy/strongswan/uni.conf.m4 > /etc/strongswan/swanctl/conf.d/ab.conf
+#####	    cp /home/vagrant/certs/SunKey.key /etc/strongswan/swanctl/private
+	fi
+
+# 3.3 Install certficates for strongswan and start strongswan
+     cp /home/vagrant/certs/CA.crt /etc/strongswan/swanctl/x509ca
+     cp /home/vagrant/certs/host*Cert.crt /etc/strongswan/swanctl/x509
+     cp /home/vagrant/certs/host*Key.key /etc/strongswan/swanctl/private
+
+     systemctl enable strongswan-starter.service
+     systemctl start strongswan-starter.service
+
+# Turn on strongswan connectivity
+
+  swanctl --load-all 
+  if [[ $? != 0 ]]; then
+	echo "swanctl --load-all failed."
+	exit 1
+  fi 
+fi
+
+
+ echo "I-LC Configuration Loaded" > $PORT_STATUS
+
+
+ echo "I-TC Tunnel Closed" > $PORT_STATUS
+
+
+        if [ $VAGRANT_ROLE == "hub" ]
+	then
+		echo "I-TR IPsec Tunnel Endpoint Ready" > $PORT_STATUS
+
+	fi
+
+        if [ $VAGRANT_ROLE == "spoke" ]
+	then
+		echo "I-CA IPsec Connection Attempt" > $PORT_STATUS
+
+		swanctl -i -c host-host
+
+		if [[ $? != 0  ]]; then
+			echo "Attempt to create IPsec tunnel failed."
+			exit 1
+		fi
+
+
+		# X. Test to see if other end of IPsec tunnel can be reached before
+		#     attempt to create VXlan connection.
+	
+		ping -c 1 -w 40 $REMOTE_IPSEC_ADDR
+		if [[ $? != 0 ]]; then
+		   echo "IPsec tunnel host unreachable. This is required to establish vxlan tunnel."
+		   exit 1
+		else
+		   echo "I-TO IPsec Tunnel Open" > $PORT_STATUS
+		fi
+	fi
+
+# 4. Create vxlan adapter (I-TC)
+# VXLAN setup
+  # See if it already exists
+  ip link show $MPORT
+  if [[ $? != 0 ]] ; then
+       	ip link add $MPORT type vxlan id $MPORT_ID dev $IPSEC_ADAPTER dstport 8472
+	  if [[ $? != 0 ]]; then
+		echo "vxlan adapter creation failed."
+		exit 1
+  	fi
+   fi
+
+echo "V-C VXLan Port Created" > $PORT_STATUS
+
+
+   export BRDG=""
+   export BRDG=`bridge fdb show 00:00:00:00:00:00 dst $REMOTE_IPSEC_ADDR dev $MPORT # dst is remote ip sec IP addr`
+   if [[ $BRDG == "" ]]; then
+	   bridge fdb add 00:00:00:00:00:00 dst $REMOTE_IPSEC_ADDR dev $MPORT # dst is remote ip sec IP addr
+	  if [[ $? != 0 ]]; then
+		echo "bridge fdb add failed."
+		exit 1
+	  fi
+   fi
+
+
+  ip link set up $MPORT
+  if [[ $? != 0 ]]; then
+	echo "VXlan ip link up failed."
+	exit 1
+  fi
+# 4.1 setup openvswitch to provide virtual switch for vxlan adapter
+
+        systemctl enable openvswitch; systemctl start openvswitch
+
+        echo "export PATH=/usr/local/bin:/usr/share/openvswitch/scripts/:$PATH" >> /etc/bashrc
+        export PATH=/usr/local/bin:/usr/share/openvswitch/scripts/:$PATH
+        hash
+        ovs-ctl start
+
+  	if [[ $? != 0 ]]; then
+		echo "ovs-ctl start failed."
+		exit 1
+        fi
+	
+        ovs-vsctl --may-exist add-br $BRIDGE
+	if [[ $? != 0 ]]; then
+		echo "ovs-vsctl add-br failed."
+		exit 1
+       	fi
+
+# 4.2 add vxlan adapter and external NIC (for spoke) to minion bridge 
+        if [ $VAGRANT_ROLE == "spoke" ]
+	then
+         	ovs-vsctl --may-exist add-port $BRIDGE eth1 # For external NIC
+  		if [[ $? != 0 ]]; then
+			echo "attempt to add adapter to vxlan bridge failed."
+			exit 1
+		fi
+	fi
+        
+        ovs-vsctl --may-exist add-port $BRIDGE $MPORT
+  	if [[ $? != 0 ]]; then
+		echo "attempt to add vxlan adapter to openvswitch switch failed."
+		exit 1
+	fi
+
+	# STP must be enabled to prevent loops
+###	ovs-vsctl set bridge $BRIDGE rstp_enable=true
+	# add a flow for the minion port to send out traffic to all ports
+###	ovs-ofctl add-flow $BRIDGE in_port=$MPORT,action=all
+
+##	ifconfig $BRIDGE $LOCALIP/24
+
+# Use supervisor on hub to keep ethereal test point active
+
+        if [ $VAGRANT_ROLE == "hub" ]
+	then
+		cat /vagrant_data/supervisor >> /etc/supervisord.conf 
+		systemctl start supervisord
+		### /usr/local/bin/etherate -r -i vxlan0 &
+	fi
+
+
+##./setup_ipsec.sh spoke $REMOTE_IPSEC_ADDR 192.7.7.10
+
+
+# Test VXlan connnection  - note that this assumes etherate is running on the
+# other end of the VXlan connection is server mode
+
+        if [ $VAGRANT_ROLE == "spoke" ]
+	then
+		# build and install etherate
+		pushd /usr/local/src
+		git clone https://github.com/jwbensley/Etherate.git
+		cd Etherate
+		./configure.sh
+		make install
+		popd
+		timeout -s INT 120 etherate -i $MPORT -Q 1000 1000 -t 5
+		if [[ $? != 0 ]]; then
+	           echo "Verification of open VXlan connection failed."
+	   	   exit 1
+		fi
+	fi
+
+echo "V-Up VXLan Port Up" > $PORT_STATUS
+echo "State-Up" > $MINION_STATUS
+
+exit 0

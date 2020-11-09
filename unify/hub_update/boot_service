@@ -1,0 +1,388 @@
+#!/bin/bash
+
+# boot_service
+# Purpose: start the minion services necessary for the remote 
+#  booting service on a server (hub)
+
+# Syntax: boot_service -m <minion port> -r <hub|spoke> -b <bridge to connect service to> -I <IP addr for minion port> -R <root DNS server for minion services> -D <IP address for local DNS resolv.conf"
+
+#      This service script is called from the mservice_start operation
+#      and provides an extensible environment more complex operations.  
+
+
+# 6.     e) keep the service running; (supervisord?) (S-Up)
+#  7. update status of minion service for the minion port
+
+
+export PATH=/vagrant_data:$PATH
+
+# Start minion service on minion PORT 
+OPTERR=1
+##BOOT_DNS=192.7.7.10
+BOOT_DNS=192.7.7.12
+LOCAL_DNS=192.7.7.4
+ROOT_DNS=192.7.7.4
+
+# Process options for create operation
+while getopts m:r:b:I:D:R:C:h option
+do
+    case "${option}" 
+    in
+      		m) MPORT=${OPTARG};;
+		r) VAGRANT_ROLE=${OPTARG};;
+		b) BRIDGE=${OPTARG};;
+		I) LOCALIP=${OPTARG};;
+		D) LOCAL_DNS=${OPTARG};;
+		R) ROOT_DNS=${OPTARG};;
+		C) SQUID_CACHE_PEER=${OPTARG};;
+		h) echo "Syntax: boot_service -m <minion port> -r <hub|spoke> -b <bridge to connect minion service to> -I <IP addr for minion port> -R <root DNS server for minion services> -D <IP address for local DNS resolv.conf -C Squid proxy cache peer"
+    esac
+done
+
+if [ -z $MPORT ]; then
+	echo Minion service port name missing.
+	exit 1
+fi
+
+if [ -z $VAGRANT_ROLE ]; then
+	echo "Boot service role (hub or spoke) is missing."
+	exit 1
+fi
+
+if [ -z $BRIDGE ]; then
+	echo Bridge name is missing.
+	exit 1
+fi
+
+if [ -z $LOCALIP ]; then
+	echo Local IP Addr for minion interface is missing.
+	exit 1
+fi
+
+if [ -z $LOCAL_DNS ]; then
+	echo IP Addr local DNS address for resolv.conf missing.
+	exit 1
+fi
+
+if [ -z $ROOT_DNS ]; then
+	echo IP Addr for root DNS address for minion services missing.
+	exit 1
+fi
+
+if [ -z $SQUID_CACHE_PEER ]; then
+	echo IP address for SQUID cache peer for minion services missing.
+	exit 1
+fi
+
+
+# 1. Ensure minion port status is in the correct state
+#  1.a Check minion service status to ensure it is ready and in the correct state
+
+export MINION_STATUS=/var/minion
+
+#minon port X status in /var/minon/ports/X
+export MINION_STATE_DIR=/var/minion
+export MINION_STATUS=$MINION_STATE_DIR/status
+export MINION_SERVICE=$MINION_STATE_DIR/service/$MPORT
+mkdir -p `dirname $MINION_SERVICE`
+
+# Ensure minion system is running
+test -e $MINION_STATUS
+if [[ $? == 1  ]]; then
+	echo "Minion infrastructure had not been established. Exiting."
+	exit 1
+fi
+
+
+if [[ `cat $MINION_STATUS | grep -v "State-Up"` ]]; then
+	echo "Minion infrastructure is not running. Exiting."
+	exit 1
+fi
+
+if [[ `cat $MINION_SERVICE | grep "S-Up"` ]]; then
+	echo "Service port is already up."
+	exit 0
+fi
+
+echo "Start" > $MINION_SERVICE
+
+
+
+# 2. Check minion service prereqs for this service (state S-PR)
+# Ensure packages are installed - if not, install them
+# be aware of serial ordering constraints
+#        2.a yum install if not present: dnsmasq, ipxe, tftp, genisoimage, lighttpd, squid, php, mod_fcgid, selinux?
+
+rpm -q dnsmasq dnsmasq-utils tftp-server tftp syslinux-tftpboot ipxe-bootimgs git xz-devel genisoimage squid lighttpd php mod_fcgid lighttpd-fastcgi wget php-process inotify-tools
+if [[ $? != 0 ]]; then
+    echo "Package(s) missing. Installing required packages."
+    yum -y install dnsmasq dnsmasq-utils tftp-server tftp syslinux-tftpboot ipxe-bootimgs git xz-devel genisoimage squid lighttpd php mod_fcgid lighttpd-fastcgi wget php-process inotify-tools
+
+else
+    echo "Required packages installed."
+fi
+
+echo "S-PR Service requisites verified" > $MINION_SERVICE
+
+
+# 3. Create configuraion files (S-LC)
+#    configure service config files; this would need to be done in the specific service script - be aware of serial ordering constraints.  
+
+echo "S-LC Create configuration files" > $MINION_SERVICE
+
+# Create boot service port
+# Create internal OVS port to attach service to.
+
+ovs-vsctl add-port $BRIDGE $MPORT -- set interface $MPORT type=internal
+if [ $? != 0 ]; then
+	echo "Error adding new port to bridge."
+	exit 1
+fi
+
+
+# 4. Start process that uses the minion port (vxlan0)
+#   start processes; this is done in the specific service script - be aware of serial ordering constraints (S-SA Start Attempt -> S-Up Service Up) - where is state maintained?
+echo "S-SA Start service attempt" > $MINION_SERVICE
+
+# Start with service unpublished.
+ovs-ofctl add-flow $BRIDGE in_port=$MPORT,action=drop
+
+if [ $? != 0 ]; then
+	echo "Error calling add-flow to unpublish service."
+	exit 1
+fi
+
+# Attach service and ensure it is running.
+ip link set up dev $MPORT
+ip addr add $LOCALIP/24 dev $MPORT # DHCP parameters need to match the IP of this adapter
+if [ $? != 0 ]; then
+	echo "Error bringing up new port link"
+	exit 1
+fi
+
+
+##### Set up iPXE on DNSmasq server
+   if [[ $VAGRANT_ROLE == "hub" ]]; then
+       # create patched ipxe with HTTP proxy support
+       #2.b ipxe and patches for http_proxy
+	test -e /usr/local/src/ipxe/src/bin/undionly.kpxe
+	if [[ $? != 0 ]]; then
+		cd /usr/local/src
+		git clone git://github.com/ipxe/ipxe.git
+		cd ipxe
+		git clone https://github.com/tjhacker/ipxehttpproxy.git
+		cd /usr/local/src/ipxe
+		patch -p1 < ipxehttpproxy/proxypatch.p
+		cp ipxehttpproxy/embedded.pxe src/embedded.pxe
+		cd src
+		echo "#define DOWNLOAD_PROTO_NFS" >> config/local/general.h
+		echo "#define PING_CMD" >> config/local/general.h
+		make EMBED=embedded.pxe -j 4
+	fi
+	cp /usr/local/src/ipxe/src/bin/undionly.kpxe /var/lib/tftpboot
+   fi
+
+   if [[ $VAGRANT_ROLE == "hub" ]]; then
+##### Retrieve and prepare TrueNAS image for use for NFS export and booting
+	 echo "/truenas *(rw,insecure,no_root_squash)" > /etc/exports
+	 wget https://download.freenas.org/12.0/STABLE/RC1/x64/TrueNAS-12.0-RC1.iso -P /tmp
+	 mkdir /tnbuild; mkdir /truenas
+	 mount -o loop /tmp/TrueNAS-12.0-RC1.iso /tnbuild
+	 cd /tnbuild
+	 cp -r . /truenas
+	 cd /truenas/TrueNAS/Packages/
+	 tar xf base-os*.tgz -C /truenas
+	 tar xf freebsd*.tgz -C /truenas
+	 tar xf freenas*.tgz -C /truenas
+
+##### Retrieve and prepare FreeNAS image for use for NFS export and booting
+
+	 echo "/freenas *(rw,insecure,no_root_squash)" >> /etc/exports
+	 wget https://download.freenas.org/11.3/STABLE/U5/x64/FreeNAS-11.3-U5.iso -P /tmp
+	 mkdir /fnbuild; mkdir /freenas
+	 mount -o loop /tmp/FreeNAS-11.3-U5.iso /fnbuild
+	 cd /fnbuild
+	 cp -r . /freenas
+	 cd /freenas/FreeNAS/Packages/
+	 tar xf base-os*.tgz -C /freenas
+	 tar xf freebsd*.tgz -C /freenas
+	 tar xf freenas*.tgz -C /freenas
+         tar xf FreeNASUI*.tgz -C /freenas
+    fi 	
+ 
+	
+ 
+#         2.c verify firewall/ebtables prereqs present
+
+   firewall-cmd --permanent --zone=juno --get-description
+   if [[ $? != 0 ]]; then
+	firewall-cmd --new-zone=juno --permanent
+	firewall-cmd --reload
+   fi
+
+   firewall-cmd --query-interface=$MPORT --zone=juno --permanent
+   if [[ $? != 0 ]]; then
+	firewall-cmd --add-interface=$MPORT --zone=juno --permanent
+   fi
+
+    firewall-cmd --zone=juno --query-service dhcp --permanent
+    if [[ $? != 0 ]]; then
+	firewall-cmd --zone=juno --add-service dhcp --permanent
+    fi
+
+    firewall-cmd --zone=juno --query-service tftp --permanent
+    if [[ $? != 0 ]]; then
+	firewall-cmd --zone=juno --add-service tftp --permanent
+    fi
+
+    firewall-cmd --zone=juno --query-service dns --permanent
+    if [[ $? != 0 ]]; then
+	firewall-cmd --zone=juno --add-service dns --permanent
+    fi
+
+    firewall-cmd --zone=juno --query-service http --permanent
+    if [[ $? != 0 ]]; then
+	firewall-cmd --zone=juno --add-service http --permanent
+    fi
+
+    firewall-cmd --zone=juno --query-service squid --permanent
+    if [[ $? != 0 ]]; then
+	firewall-cmd --zone=juno --add-service squid --permanent
+    fi
+
+    firewall-cmd --zone=juno --query-port 3130/udp --permanent
+    if [[ $? != 0 ]]; then
+	firewall-cmd --zone=juno --add-port 3130/udp --permanent
+    fi
+
+    firewall-cmd --zone=juno --add-service={nfs,rpc-bind,mountd} --permanent
+    firewall-cmd --zone=juno --add-port=2049/udp --permanent
+
+###    firewall-cmd --add-masquerade --permanent
+###    firewall-cmd --zone=dmz --set-target=DROP --permanent  #  BLOCK ALL ICMP
+    firewall-cmd --reload
+
+
+# 3. Create configuraion files (S-LC)
+#    configure service config files; this would need to be done in the specific service script - be aware of serial ordering constraints.  
+
+   if [[ $VAGRANT_ROLE == "hub" ]]; then
+##### HTTP server setup
+	sed -i 's/server.use-ipv6 = "enable"/server.use-ipv6 = "disable"/' /etc/lighttpd/lighttpd.conf
+	# Add fastCGI conf to lighttpd 
+	cat /usr/local/src/ipxe/ipxehttpproxy/fastcgi.conf_addition >> /etc/lighttpd/conf.d/fastcgi.conf
+	cp /usr/local/src/ipxe/ipxehttpproxy/foo.php /var/www/lighttpd/foo.php
+	cp /usr/local/src/ipxe/ipxehttpproxy/dhcp_opt.php /var/www/lighttpd/dhcp_opt.php
+	mkdir /var/www/localhost
+	cp /etc/php.ini /var/www/localhost
+	sed -i "s:;cgi.fix_pathinfo:cgi.fix_pathinfo:" /var/www/localhost/php.ini
+	sed -i 's:#include "conf.d/fastcgi.conf:include "conf.d/fastcgi.conf:' /etc/lighttpd/modules.conf
+
+
+#### Configure Kickstart file for remote booting
+	cp /usr/local/src/ipxe/ipxehttpproxy/ks.cfg /var/www/lighttpd/ks.cfg
+
+#### Configure NFS server 
+        sed -i 's:# tcp=y:udp=y\ntcp=y:' /etc/nfs.conf
+
+   fi
+
+##### SQUID cache setup
+   sed -i "s:\#cache_dir ufs /var/spool/squid 100 16 256:cache_dir ufs /var/spool/squid 100000 16 256:" /etc/squid/squid.conf	 
+   echo "maximum_object_size 40 GB" >> /etc/squid/squid.conf
+   echo "acl localnet src 192.7.0.0/16   # RFC1918 possible internal network" >> /etc/squid/squid.conf
+
+   echo "icp_port 3130" >> /etc/squid/squid.conf
+   echo "icp_access allow localnet" >> /etc/squid/squid.conf 
+   squid -z
+
+echo "S-LC Service configuration files created." > $MINION_SERVICE
+
+echo "S-SA Service start attempt." > $MINION_SERVICE
+
+# 4. Start process that uses the minion port (vxlan0)
+#   start processes; this is done in the specific service script - be aware of serial ordering constraints (S-SA Start Attempt -> S-Up Service Up) - where is state maintained?
+
+
+	if [[ $VAGRANT_ROLE == "hub" ]]; then
+	# jumphost was masking DNS that refers requests to main server
+
+
+		# Create place for DHCP options file that can be changed by PHP function called back from PXE booting system.
+		systemctl enable lighttpd; systemctl start lighttpd
+		# Create sepolicy for this...
+		mkdir /var/dhcpopts; touch /var/dhcpopts/dhcpopts; chown lighttpd /var/dhcpopts/dhcpopts
+		# Next two lines selinux provides php access to /var/dhcopts/dhcopts
+		semanage fcontext --add -t httpd_sys_rw_content_t /var/dhcpopts/dhcpopts
+		restorecon -v /var/dhcpopts/dhcpopts
+
+		cat /vagrant_data/reload-dhcpopts >> /etc/supervisord.conf 
+		sleep 2
+		systemctl stop supervisord; systemctl start supervisord
+
+
+
+###		dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=$MPORT --dhcp-range=192.7.7.30,192.7.7.35,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/juno.load/192.7.7.4 --server=8.8.4.4 --dhcp-option=6,$BOOT_DNS
+####		dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=$MPORT --dhcp-range=192.7.7.30,192.7.7.35,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/juno.load/$LOCALIP --server=8.8.4.4 --dhcp-option=6,$BOOT_DNS --dhcp-option=17,nfs://$LOCALIP/truenas
+		dnsmasq --enable-tftp --tftp-root=/var/lib/tftpboot --interface=$MPORT --dhcp-range=192.7.7.30,192.7.7.35,255.255.255.0  --dhcp-boot=undionly.kpxe --address=/juno.load/$LOCALIP --server=8.8.4.4 --dhcp-option=6,$BOOT_DNS --pid-file=/var/run/dnsmasq.pid --dhcp-optsfile=/var/dhcpopts/dhcpopts
+
+### Start NFS services
+		systemctl start nfs-server.service
+		systemctl start nfs-mountd.service
+		exportfs -a
+	
+	fi
+	
+	if [[ $VAGRANT_ROLE == "spoke" ]]; then
+		echo "cache_peer $SQUID_CACHE_PEER parent 3128 3130 default" >> /etc/squid/squid.conf
+		dnsmasq --interface=$MPORT --address=/juno.load/$LOCALIP --server=$ROOT_DNS
+
+	fi
+
+	echo "nameserver $LOCAL_DNS" > /etc/resolv.conf
+
+	sleep 5; systemctl enable squid; systemctl start squid
+
+# 5.  check correctness and correct operating of the service;  - how can I check this?
+# what needs to be confirmed: service is running; service is connected to the vxlan adapter; service responds to requests
+  # Check dnmasq, lightthpd, and squid
+
+
+  ps -eaf | grep dnsmasq | grep -v grep
+
+  if [[ $? != 0 ]]; then
+ 	echo "dnsmasq not running."
+	exit 1
+  fi
+
+
+   if [[ $VAGRANT_ROLE == "hub" ]]; then
+	systemctl status lighttpd
+  	if [[ $? != 0 ]]; then
+ 		echo "Lighttpd not running."
+		exit 1
+	fi
+   fi
+
+  systemctl status squid
+
+  if [[ $? != 0 ]]; then
+ 	echo "Squid not running."
+	exit 1
+  fi
+
+echo "S-Up Service Up" > $MINION_SERVICE
+
+# Publish service
+
+ovs-ofctl del-flows $BRIDGE in_port=$MPORT
+
+if [ $? != 0 ]; then
+	echo "Error calling del-flow to publish service."
+	exit 1
+fi
+
+echo "S-Pub Service published" > $MINION_SERVICE
+
+exit 0
+
