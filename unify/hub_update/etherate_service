@@ -1,0 +1,167 @@
+#!/bin/bash
+
+# etherate test service 
+# Purpose: start the minion services necessary for remote etherate testing
+
+# Syntax: etherate_service -m <minion port> -r <hub|spoke> -b <bridge to connection minion port to>
+
+SUBCOMMAND=$1
+OPTERR=1
+MPORT=""
+BRIDGE=""
+shift 1
+
+# Process options 
+while getopts m:r:b:h option
+	do
+	case "${option}" 
+	in
+		m) MPORT=${OPTARG};;
+		r) VAGRANT_ROLE=${OPTARG};;
+		b) BRIDGE=${OPTARG};;
+		h) echo "Syntax: etherate_service -m <minion port> -r <hub|spoke> -b <bridge to connect minion service to>"
+	esac
+done
+
+
+if [[ $MPORT == "" ]]; then
+	echo Minion service port name missing.
+	exit 1
+fi
+
+if [[ $VAGRANT_ROLE == "" ]]; then
+	echo Hub or Spoke role is missing.
+	exit 1
+fi
+
+if [[ $BRIDGE == "" ]]; then
+	echo Bridge name is missing.
+	exit 1
+fi
+
+
+# 1. Ensure minion port status is in the correct state
+#  1.a Check minion service status to ensure it is ready and in the correct state
+
+export MINION_STATUS=/var/minion
+
+#minon port X status in /var/minon/ports/X
+export MINION_STATE_DIR=/var/minion
+export MINION_STATUS=$MINION_STATE_DIR/status
+export MINION_SERVICE=$MINION_STATE_DIR/service/$MPORT
+mkdir -p `dirname $MINION_SERVICE`
+
+# Ensure minion system is running
+test -e $MINION_STATUS
+if [[ $? == 1  ]]; then
+	echo "Minion infrastructure had not been established. Exiting."
+	exit 1
+fi
+
+
+if [[ `cat $MINION_STATUS | grep -v "State-Up"` ]]; then
+	echo "Minion infrastructure is not running. Exiting."
+	exit 1
+fi
+
+
+if [[ `cat $MINION_SERVICE | grep "S-Up"` ]]; then
+	echo "Service port is already up."
+	exit 0
+fi
+
+echo "Start" > $MINION_SERVICE
+
+# 2. Check minion service prereqs for this service (state S-PR)
+# Ensure packages are installed - if not, install them
+# be aware of serial ordering constraints
+
+
+# Create internal OVS port to attach service to.
+
+ovs-vsctl add-port $BRIDGE $MPORT -- set interface $MPORT type=internal
+if [ $? != 0 ]; then
+	echo "Error adding new port to bridge."
+	exit 1
+fi
+
+
+
+
+# Start with service unpublished.
+ovs-ofctl add-flow $BRIDGE in_port=$MPORT,action=drop
+
+if [ $? != 0 ]; then
+	echo "Error calling add-flow to unpublish service."
+	exit 1
+fi
+
+# Attach service and ensure it is running.
+ip link set up dev $MPORT
+
+if [ $? != 0 ]; then
+	echo "Error bringing up new port link"
+	exit 1
+fi
+
+echo "S-PR Service requisites verified" > $MINION_SERVICE
+
+# 3. Create configuraion files (S-LC)
+#    configure service config files; this would need to be done in the specific service script - be aware of serial ordering constraints.  
+
+echo "S-LC Create configuration files" > $MINION_SERVICE
+
+# Use supervisor on hub to keep etherate test point active
+
+	if [ $VAGRANT_ROLE == "hub" ]
+	then
+
+	# Get Etherate to check minion ports
+	##    timeout -s INT 120 ./etherate -i vxlan0 -Q 1000 1000 -t 5
+		      pushd /usr/local/src
+		      git clone https://github.com/jwbensley/Etherate.git
+		      cd Etherate
+		      ./configure.sh
+		      make install
+			popd
+		cat /vagrant_data/supervisor >> /etc/supervisord.conf 
+
+	fi
+
+# 4. Start process that uses the minion port (vxlan0)
+#   start processes; this is done in the specific service script - be aware of serial ordering constraints (S-SA Start Attempt -> S-Up Service Up) - where is state maintained?
+echo "S-SA Start service attempt" > $MINION_SERVICE
+
+
+	if [ $VAGRANT_ROLE == "hub" ]
+	then
+		systemctl start supervisord
+		### /usr/local/bin/etherate -r -i vxlan0 &
+	fi
+
+
+echo "S-Up Service Up" > $MINION_SERVICE
+
+
+# Publish service
+
+ovs-ofctl del-flows $BRIDGE in_port=$MPORT
+
+if [ $? != 0 ]; then
+	echo "Error calling del-flow to publish service."
+	exit 1
+fi
+
+echo "S-Pub Service published" > $MINION_SERVICE
+
+exit 0
+
+
+
+
+# 5.  check correctness and correct operating of the service;  - how can I check this?
+# what needs to be confirmed: service is running; service is connected to the vxlan adapter; service responds to requests
+  # Check dnmasq, lightthpd, and squid
+
+
+

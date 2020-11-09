@@ -1,0 +1,51 @@
+#!/bin/bash
+# Minion_status
+# Purpose: return the vxlan minion state for overall system and all ports.
+
+
+# Syntax: minion_status -m minion-port-name 
+
+# Create minion port name PORT with VXlan ID N
+OPTERR=1
+MPORT=""
+
+# Process options for create operation
+while getopts m:h option
+do
+   case "${option}" 
+   in
+   m) MPORT=${OPTARG};;
+   h) echo "Syntax: minion_status -m minion-port-name"
+   esac
+done
+
+
+export MINION_STATUS=/var/minion/service
+
+test -e $MINION_STATUS
+if [[ $? == 1  ]]; then
+ # Not there - exit with error
+ echo "Cannot report status with no state information present."
+ exit 1
+else
+ echo -n  "Existing minion status: " 
+ cat $MINION_STATUS
+fi
+
+# Verify that minion status is V-*
+
+if [[ $MPORT == "" ]]; then
+  exit 0
+fi
+
+export PORT_STATUS=`dirname $MINION_STATUS`/ports/$MPORT
+# Check minions state to delete minion port
+test -e $PORT_STATUS
+if [[ $? == 1 ]]; then
+  echo "Port " $MPORT " is not present."
+  exit 1
+fi
+
+echo -n "Port status of "  $PORT_STATUS ":"
+cat $PORT_STATUS 
+exit 0
