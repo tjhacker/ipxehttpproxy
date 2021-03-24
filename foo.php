@@ -27,7 +27,8 @@ echo $post_cmd;
 echo "imgfree dhcp_opt.php\n";
 echo "dhcp\n";
 echo "sleep 4\n";
-echo "imgfetch --timeout 1000000 nfs://192.7.7.4/truenas/boot/pxeboot\n";
+echo ":retry_truenas_nfs\n";
+echo "imgfetch --timeout 1000000 nfs://192.7.7.4/truenas/boot/pxeboot || goto retry_truenas_nfs\n";
 echo "echo Image loaded.\n";
 echo "boot pxeboot\n";
 
