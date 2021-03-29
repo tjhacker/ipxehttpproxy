@@ -8,4 +8,4 @@ prompt --key 0x02 --timeout 2000 Press Ctrl-B for the iPXE command line... && sh
 
 #chain --autofree http://boot.netboot.xyz
 :retry_chain
-chain --autofree http://juno.load/foo.php || retry_chain
+chain --autofree http://juno.load/foo.php || goto retry_chain
