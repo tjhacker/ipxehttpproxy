@@ -14,11 +14,10 @@ echo "item --key d centos7_efi (d) Install CentOS7 via EFI\n";
 echo "item --key p pfs (p) Install pfSense\n";
 echo "item --key x pfs_efi (x) Install pfSense via EFI\n";
 echo "choose target\n";
-#echo "dhcp\n";
+
 echo "show target\n";
 echo "goto \${target}\n";
 echo "exit\n";
-#echo "kernel http://ftp.ussg.iu.edu/linux/centos/7/os/x86_64/images/pxeboot/vmlinuz proxy=" . $proxy . " repo=http://ftp.ussg.iu.edu/linux/centos/7/os/x86_64 text rootpw --cleartext 123cithpc time zone US/Eastern install autopart\n";
 echo ":centos7\n";
 echo "#CentOS7\n";
 #echo "kernel http://ftp.ussg.iu.edu/linux/centos/7/os/x86_64/images/pxeboot/vmlinuz proxy=" . $proxy . " text repo=http://ftp.ussg.iu.edu/linux/centos/7/os/x86_64 text ks=http://juno.load/ks.cfg\n";
